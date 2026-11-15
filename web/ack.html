@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Cirrus · confirmar rotación</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <h1>Cirrus</h1>
+  <p class="sub">¿Ya rotaste o desactivaste la credencial en su cuenta de origen?</p>
+  <button id="ack">Confirmo que roté la credencial</button>
+  <p id="msg" hidden></p>
+</main>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const [id, ackToken] = location.hash.slice(1).split(':');
+function say(text, cls) { const m = $('msg'); m.textContent = text; m.className = cls; m.hidden = false; }
+if (!id || !ackToken) { $('ack').hidden = true; say('Este link está incompleto.', 'err'); }
+
+$('ack').addEventListener('click', async () => {
+  $('ack').disabled = true;
+  try {
+    const r = await fetch('/api/ack', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, ackToken }),
+    });
+    if (r.ok) { $('ack').hidden = true; say('Listo, rotación confirmada. No enviaremos más recordatorios.', 'ok'); }
+    else { $('ack').disabled = false; say('No se pudo confirmar (link inválido o vencido).', 'err'); }
+  } catch { $('ack').disabled = false; say('Error de red. Inténtalo de nuevo.', 'err'); }
+});
+</script>
+</body>
+</html>

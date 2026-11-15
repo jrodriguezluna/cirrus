@@ -58,8 +58,8 @@ function steps(m) {
 const checklist = (m) => steps(m).map((s, i) => `${i + 1}. ${s}`).join('\n');
 
 const ackHelp = (id, m) => [
-  'Cuando hayas rotado, confirma (por ahora con curl; luego será un botón en la web):',
-  `  curl -X POST https://${m.apiHost}/api/ack -H 'Content-Type: application/json' -d '{"id":"${id}","ackToken":"${m.ackToken}"}'`,
+  'Cuando hayas rotado, confirma aquí (abre el link y pulsa el botón):',
+  `  ${process.env.SITE_URL}/ack.html#${id}:${m.ackToken}`,
 ].join('\n');
 
 async function register({ id, taskToken }) {
