@@ -48,6 +48,7 @@ export const handler = async (event) => {
     statusTokenHash: createHash('sha256').update(statusToken).digest('hex'),
     ackToken,
     apiHost: event.requestContext?.domainName,
+    expiresAt,
     ttl: expiresAt + 30 * 86400,
   };
   if (notify) {

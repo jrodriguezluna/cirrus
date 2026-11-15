@@ -90,6 +90,18 @@ Resources:
           Type: HttpApi
           Properties: { ApiId: !Ref HttpApi, Method: POST, Path: /api/ack }
 
+  StatusFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/status/
+      Handler: index.handler
+      Policies:
+        - DynamoDBReadPolicy: { TableName: !Ref Table }
+      Events:
+        Api:
+          Type: HttpApi
+          Properties: { ApiId: !Ref HttpApi, Method: GET, Path: '/api/secrets/{id}/status' }
+
   LifecycleFn:
     Type: AWS::Serverless::Function
     Properties:
@@ -140,6 +152,27 @@ Resources:
         SigningBehavior: always
         SigningProtocol: sigv4
 
+  SecurityHeaders:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: !Sub '${AWS::StackName}-security'
+        SecurityHeadersConfig:
+          ContentSecurityPolicy:
+            Override: true
+            ContentSecurityPolicy: "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+          ContentTypeOptions:
+            Override: true
+          FrameOptions:
+            FrameOption: DENY
+            Override: true
+          ReferrerPolicy:
+            ReferrerPolicy: no-referrer
+            Override: true
+          StrictTransportSecurity:
+            AccessControlMaxAgeSec: 31536000
+            Override: true
+
   Distribution:
     Type: AWS::CloudFront::Distribution
     Properties:
@@ -160,6 +193,7 @@ Resources:
           TargetOriginId: web
           ViewerProtocolPolicy: redirect-to-https
           CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          ResponseHeadersPolicyId: !Ref SecurityHeaders
         CacheBehaviors:
           - PathPattern: /api/*
             TargetOriginId: api
