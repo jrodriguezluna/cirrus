@@ -1,0 +1,100 @@
+{
+  "Comment": "Cirrus - ciclo de vida de un secreto",
+  "StartAt": "WaitForRead",
+  "States": {
+    "WaitForRead": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "Parameters": {
+        "FunctionName": "${LifecycleFnArn}",
+        "Payload": {
+          "action": "register",
+          "id.$": "$.id",
+          "taskToken.$": "$$.Task.Token"
+        }
+      },
+      "TimeoutSecondsPath": "$.waitSeconds",
+      "ResultPath": "$.readResult",
+      "Catch": [
+        { "ErrorEquals": ["States.Timeout"], "ResultPath": "$.error", "Next": "NotifyExpired" }
+      ],
+      "Next": "NotifyRead"
+    },
+    "NotifyRead": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${LifecycleFnArn}",
+        "Payload": { "action": "notifyRead", "id.$": "$.id" }
+      },
+      "ResultPath": null,
+      "Next": "WaitReminder"
+    },
+    "NotifyExpired": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${LifecycleFnArn}",
+        "Payload": { "action": "notifyExpired", "id.$": "$.id" }
+      },
+      "ResultSelector": { "reads.$": "$.Payload.reads" },
+      "ResultPath": "$.expired",
+      "Next": "ReadBeforeExpiry"
+    },
+    "ReadBeforeExpiry": {
+      "Type": "Choice",
+      "Choices": [
+        { "Variable": "$.expired.reads", "NumericGreaterThan": 0, "Next": "WaitReminder" }
+      ],
+      "Default": "Closed"
+    },
+    "WaitReminder": {
+      "Type": "Wait",
+      "SecondsPath": "$.reminderWait",
+      "Next": "CheckAck"
+    },
+    "CheckAck": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${LifecycleFnArn}",
+        "Payload": { "action": "checkAck", "id.$": "$.id" }
+      },
+      "ResultSelector": {
+        "acked.$": "$.Payload.acked",
+        "attempts.$": "$.Payload.attempts"
+      },
+      "ResultPath": "$.check",
+      "Next": "IsAcked"
+    },
+    "IsAcked": {
+      "Type": "Choice",
+      "Choices": [
+        { "Variable": "$.check.acked", "BooleanEquals": true, "Next": "Closed" },
+        { "Variable": "$.check.attempts", "NumericGreaterThanEquals": 3, "Next": "GiveUp" }
+      ],
+      "Default": "SendReminder"
+    },
+    "SendReminder": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${LifecycleFnArn}",
+        "Payload": { "action": "sendReminder", "id.$": "$.id" }
+      },
+      "ResultPath": null,
+      "Next": "WaitReminder"
+    },
+    "GiveUp": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${LifecycleFnArn}",
+        "Payload": { "action": "giveUp", "id.$": "$.id" }
+      },
+      "ResultPath": null,
+      "Next": "Closed"
+    },
+    "Closed": { "Type": "Succeed" }
+  }
+}

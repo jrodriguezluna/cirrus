@@ -2,6 +2,15 @@ AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: Cirrus - secretos de un solo uso con ciclo de vida
 
+Parameters:
+  SenderEmail:
+    Type: String
+    Description: Correo verificado en SES que envia los avisos
+  ReminderWaitSeconds:
+    Type: Number
+    Default: 86400
+    Description: Segundos entre recordatorios (86400 = 24 h; usar 30 para el demo)
+
 Globals:
   Function:
     Runtime: nodejs22.x
@@ -37,8 +46,13 @@ Resources:
     Properties:
       CodeUri: src/create/
       Handler: index.handler
+      Environment:
+        Variables:
+          STATE_MACHINE: !Ref Lifecycle
+          REMINDER_WAIT: !Ref ReminderWaitSeconds
       Policies:
         - DynamoDBCrudPolicy: { TableName: !Ref Table }
+        - StepFunctionsExecutionPolicy: { StateMachineName: !GetAtt Lifecycle.Name }
       Events:
         Api:
           Type: HttpApi
@@ -51,11 +65,60 @@ Resources:
       Handler: index.handler
       Policies:
         - DynamoDBCrudPolicy: { TableName: !Ref Table }
+        - Statement:
+            - Effect: Allow
+              Action: states:SendTaskSuccess
+              Resource: '*'
       Events:
         Api:
           Type: HttpApi
           Properties: { ApiId: !Ref HttpApi, Method: POST, Path: '/api/secrets/{id}/reveal' }
 
+  AckFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/ack/
+      Handler: index.handler
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref Table }
+      Events:
+        Api:
+          Type: HttpApi
+          Properties: { ApiId: !Ref HttpApi, Method: POST, Path: /api/ack }
+
+  LifecycleFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/lifecycle/
+      Handler: index.handler
+      Timeout: 15
+      Environment:
+        Variables:
+          SENDER: !Ref SenderEmail
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref Table }
+        - Statement:
+            - Effect: Allow
+              Action: states:SendTaskSuccess
+              Resource: '*'
+            - Effect: Allow
+              Action: ses:SendEmail
+              Resource: '*'
+              Condition:
+                StringEquals:
+                  'ses:FromAddress': !Ref SenderEmail
+
+  Lifecycle:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      DefinitionUri: statemachine/lifecycle.asl.json
+      DefinitionSubstitutions:
+        LifecycleFnArn: !GetAtt LifecycleFn.Arn
+      Policies:
+        - LambdaInvokePolicy: { FunctionName: !Ref LifecycleFn }
+
 Outputs:
   ApiUrl:
     Value: !Sub 'https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com'
+  LifecycleArn:
+    Value: !Ref Lifecycle
