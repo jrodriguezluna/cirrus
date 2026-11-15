@@ -43,3 +43,7 @@ pre.secret { margin: 1rem 0 0; padding: 1rem; background: var(--card); border: 1
 .stat { display: grid; grid-template-columns: 9rem 1fr; gap: .4rem 1rem; margin: 1rem 0; padding: 1rem; background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
 .stat dt { color: var(--muted); }
 .stat dd { margin: 0; }
+input[type=password] {
+  width: 100%; padding: .65rem .75rem; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--card); color: var(--fg); font: inherit;
+}

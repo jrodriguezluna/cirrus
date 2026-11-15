@@ -30,5 +30,7 @@ export const handler = async (event) => {
     maxUses: Item.maxUses,
     attempts: Item.attempts ?? 0,
     notify: Boolean(Item.notifyEmail),
+    caseRef: Item.caseRef ?? null,
+    readLog: Item.readLog ?? [],
   });
 };

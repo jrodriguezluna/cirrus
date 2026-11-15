@@ -5,7 +5,13 @@ import { randomBytes, createHash } from 'node:crypto';
 
 const MAX_USES = 5;
 const REMINDER_WAIT = Number(process.env.REMINDER_WAIT ?? 86400);
-const CLASSES = ['aws-access-key', 'aws-temp', 'pem', 'conn-string', 'env', 'generic'];
+const CLASSES = ['aws-access-key', 'aws-temp', 'gcp-sa', 'azure-secret', 'github-token', 'slack-token', 'pem', 'conn-string', 'env', 'generic'];
+const KEY_ID = {
+  'aws-access-key': /^AKIA[0-9A-Z]{16}$/,
+  'aws-temp': /^ASIA[0-9A-Z]{16}$/,
+  'gcp-sa': /^[0-9a-f]{40}$/,
+};
+const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const sfn = new SFNClient({});
 const b64u = /^[A-Za-z0-9_-]+$/;
@@ -18,23 +24,28 @@ const reply = (code, body) => ({
 export const handler = async (event) => {
   let data;
   try { data = JSON.parse(event.body ?? ''); } catch { return reply(400, { error: 'invalid_json' }); }
-  const { ct, iv, ttlSeconds } = data;
+  const { ct, iv, ttlSeconds, caseRef } = data;
   const maxUses = data.maxUses ?? 1;
   if (typeof ct !== 'string' || !b64u.test(ct) || ct.length > 24000) return reply(400, { error: 'invalid_ct' });
   if (typeof iv !== 'string' || !b64u.test(iv) || iv.length > 64) return reply(400, { error: 'invalid_iv' });
   if (!Number.isInteger(ttlSeconds) || ttlSeconds < 60 || ttlSeconds > 604800) return reply(400, { error: 'invalid_ttl' });
   if (!Number.isInteger(maxUses) || maxUses < 1 || maxUses > MAX_USES) return reply(400, { error: 'invalid_max_uses' });
+  if (data.pass !== undefined && typeof data.pass !== 'boolean') return reply(400, { error: 'invalid_pass' });
+  if (caseRef !== undefined && (typeof caseRef !== 'string' || caseRef.length < 1 || caseRef.length > 80 || /[\u0000-\u001F\u007F<>]/.test(caseRef))) {
+    return reply(400, { error: 'invalid_ref' });
+  }
 
-  // Aviso opcional (opt-in): email, tipo de credencial y, si se quiere, el AccessKeyId
+  // Aviso opcional (opt-in): email, tipo de credencial y, si aplica, el ID de la key
   let notify = null;
   if (data.notify) {
-    const { email, credClass = 'generic', keyId } = data.notify;
-    if (typeof email !== 'string' || email.length > 254 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-      return reply(400, { error: 'invalid_email' });
-    }
+    const { email, credClass = 'generic', keyId, account } = data.notify;
+    if (typeof email !== 'string' || email.length > 254 || !EMAIL.test(email)) return reply(400, { error: 'invalid_email' });
     if (!CLASSES.includes(credClass)) return reply(400, { error: 'invalid_class' });
-    if (keyId !== undefined && !/^(AKIA|ASIA)[0-9A-Z]{16}$/.test(keyId)) return reply(400, { error: 'invalid_key_id' });
-    notify = { email, credClass, keyId };
+    if (keyId !== undefined && !KEY_ID[credClass]?.test(keyId)) return reply(400, { error: 'invalid_key_id' });
+    if (account !== undefined && (credClass !== 'gcp-sa' || typeof account !== 'string' || account.length > 254 || !EMAIL.test(account))) {
+      return reply(400, { error: 'invalid_account' });
+    }
+    notify = { email, credClass, keyId, account };
   }
 
   const id = randomBytes(16).toString('base64url');
@@ -42,28 +53,30 @@ export const handler = async (event) => {
   const ackToken = randomBytes(16).toString('base64url');
   const now = Math.floor(Date.now() / 1000);
   const expiresAt = now + ttlSeconds;
+  const pass = data.pass === true;
 
   const meta = {
-    pk: `META#${id}`, status: 'CREATED', createdAt: now, maxUses, reads: 0, attempts: 0,
+    pk: `META#${id}`, status: 'CREATED', createdAt: now, maxUses, reads: 0, attempts: 0, pass,
     statusTokenHash: createHash('sha256').update(statusToken).digest('hex'),
     ackToken,
     apiHost: event.requestContext?.domainName,
     expiresAt,
     ttl: expiresAt + 30 * 86400,
   };
+  if (caseRef) meta.caseRef = caseRef;
   if (notify) {
     meta.notifyEmail = notify.email;
     meta.credClass = notify.credClass;
     if (notify.keyId) meta.keyId = notify.keyId;
+    if (notify.account) meta.account = notify.account;
   }
+
+  const secret = { pk: `SEC#${id}`, ct, iv, maxUses, usesLeft: maxUses, expiresAt, ttl: expiresAt + 3600, pass };
+  if (caseRef) secret.caseRef = caseRef;
 
   await ddb.send(new TransactWriteCommand({
     TransactItems: [
-      { Put: {
-        TableName: process.env.TABLE,
-        Item: { pk: `SEC#${id}`, ct, iv, maxUses, usesLeft: maxUses, expiresAt, ttl: expiresAt + 3600 },
-        ConditionExpression: 'attribute_not_exists(pk)',
-      } },
+      { Put: { TableName: process.env.TABLE, Item: secret, ConditionExpression: 'attribute_not_exists(pk)' } },
       { Put: { TableName: process.env.TABLE, Item: meta } },
     ],
   }));

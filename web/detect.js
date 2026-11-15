@@ -1,7 +1,17 @@
-// Devuelve null o { cls, title, msg, alt?, keyId?, shortTtl, level }
+// Devuelve null o { cls, title, msg, alt?, keyId?, account?, shortTtl, level }
 export function detect(input) {
   const t = (input ?? '').trim();
   if (!t) return null;
+
+  // JSON de service account (antes que PEM: contiene una clave privada)
+  if (/"type"\s*:\s*"service_account"/.test(t)) return {
+    cls: 'gcp-sa', shortTtl: true, level: 'warn',
+    keyId: t.match(/"private_key_id"\s*:\s*"([0-9a-f]{40})"/)?.[1],
+    account: t.match(/"client_email"\s*:\s*"([^"\s]+@[^"\s]+)"/)?.[1],
+    title: 'Parece la clave JSON de una service account de GCP',
+    msg: 'Estas claves no expiran solas. Si puedes, usa impersonación de service account:',
+    alt: 'gcloud auth print-access-token --impersonate-service-account=SA_EMAIL',
+  };
 
   const akia = t.match(/\bAKIA[0-9A-Z]{16}\b/);
   if (akia) return {
@@ -14,6 +24,21 @@ export function detect(input) {
     cls: 'aws-temp', shortTtl: true, level: 'info',
     title: 'Parece una credencial temporal de AWS (ASIA…)',
     msg: 'Buena práctica: expira sola. Aun así, un TTL corto reduce la exposición.',
+  };
+  if (/\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36}\b|\bgithub_pat_[A-Za-z0-9_]{20,}/.test(t)) return {
+    cls: 'github-token', shortTtl: true, level: 'warn',
+    title: 'Parece un token de GitHub',
+    msg: 'Los tokens clásicos no expiran por defecto. Prefiere tokens de grano fino con expiración corta.',
+  };
+  if (/\bxox[abprs]-[A-Za-z0-9-]{10,}/.test(t)) return {
+    cls: 'slack-token', shortTtl: true, level: 'warn',
+    title: 'Parece un token de Slack',
+    msg: 'Puede dar acceso amplio al workspace. Compártelo solo si es imprescindible y revócalo después.',
+  };
+  if (/[A-Za-z0-9_~.]{3}\dQ~[A-Za-z0-9_~.-]{31,34}/.test(t)) return {
+    cls: 'azure-secret', shortTtl: true, level: 'warn',
+    title: 'Parece un client secret de Azure',
+    msg: 'Vive hasta su fecha de vencimiento. Considera identidades administradas o federación de workload.',
   };
   if (/-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(t)) return {
     cls: 'pem', shortTtl: true, level: 'warn',

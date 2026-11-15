@@ -1,5 +1,5 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, UpdateCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, GetCommand, UpdateCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { SFNClient, SendTaskSuccessCommand } from '@aws-sdk/client-sfn';
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
@@ -11,9 +11,22 @@ const reply = (code, body) => ({
   body: JSON.stringify(body),
 });
 
+// Solo lectura: no consume usos y nunca devuelve el texto cifrado
+async function info(id) {
+  const now = Math.floor(Date.now() / 1000);
+  const { Item } = await ddb.send(new GetCommand({ TableName, Key: { pk: `SEC#${id}` }, ConsistentRead: true }));
+  if (!Item || Item.expiresAt <= now || Item.usesLeft <= 0) return reply(404, { error: 'not_found_or_used' });
+  return reply(200, {
+    usesLeft: Item.usesLeft, maxUses: Item.maxUses, expiresAt: Item.expiresAt,
+    pass: Item.pass === true, caseRef: Item.caseRef ?? null,
+  });
+}
+
 export const handler = async (event) => {
   const id = event.pathParameters?.id ?? '';
   if (!/^[A-Za-z0-9_-]{22}$/.test(id)) return reply(404, { error: 'not_found_or_used' });
+  if (event.requestContext?.http?.method === 'GET') return info(id);
+
   const Key = { pk: `SEC#${id}` };
   const now = Math.floor(Date.now() / 1000);
 
@@ -40,14 +53,14 @@ export const handler = async (event) => {
     })).catch(() => {});
   }
 
-  // Registrar la lectura y, si fue la última, despertar a Step Functions.
+  // Registrar la lectura (contador e historial) y, si fue la última, despertar a Step Functions.
   // Un fallo aquí nunca debe impedir la entrega del secreto.
   try {
     const m = await ddb.send(new UpdateCommand({
       TableName, Key: { pk: `META#${id}` },
-      UpdateExpression: 'ADD #r :one SET lastReadAt = :now',
+      UpdateExpression: 'ADD #r :one SET lastReadAt = :now, readLog = list_append(if_not_exists(readLog, :empty), :t)',
       ExpressionAttributeNames: { '#r': 'reads' },
-      ExpressionAttributeValues: { ':one': 1, ':now': now },
+      ExpressionAttributeValues: { ':one': 1, ':now': now, ':empty': [], ':t': [now] },
       ReturnValues: 'ALL_NEW',
     }));
     if (item.usesLeft === 0 && m.Attributes?.taskToken) {
@@ -57,5 +70,8 @@ export const handler = async (event) => {
     console.error('lifecycle_notify_failed', e.name);
   }
 
-  return reply(200, { ct: item.ct, iv: item.iv, usesLeft: item.usesLeft, maxUses: item.maxUses });
+  return reply(200, {
+    ct: item.ct, iv: item.iv, usesLeft: item.usesLeft, maxUses: item.maxUses,
+    pass: item.pass === true, caseRef: item.caseRef ?? null,
+  });
 };

@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
   <title>Cirrus · revelar secreto</title>
+  <link rel="icon" href="favicon.ico">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -12,6 +13,13 @@
   <h1>Cirrus</h1>
   <p class="sub">Alguien te compartió un secreto. Se descifra en tu navegador al pulsar el botón.</p>
   <p class="hint">Si el link permite un solo uso, solo podrás verlo una vez.</p>
+  <p id="refLine" class="hint" hidden></p>
+  <div id="passBox" hidden>
+    <label for="pass">Passphrase</label>
+    <input type="password" id="pass" autocomplete="off">
+    <p class="hint">El emisor debió enviártela por otro canal.</p>
+  </div>
+  <p id="info" class="hint" hidden></p>
   <button id="reveal">Revelar secreto</button>
   <p id="msg" hidden></p>
   <pre id="secret" class="secret" hidden></pre>

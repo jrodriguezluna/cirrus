@@ -77,6 +77,9 @@ Resources:
         Api:
           Type: HttpApi
           Properties: { ApiId: !Ref HttpApi, Method: POST, Path: '/api/secrets/{id}/reveal' }
+        Info:
+          Type: HttpApi
+          Properties: { ApiId: !Ref HttpApi, Method: GET, Path: '/api/secrets/{id}/info' }
 
   AckFn:
     Type: AWS::Serverless::Function

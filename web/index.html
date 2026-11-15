@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
   <title>Cirrus · secretos que se disipan</title>
+  <link rel="icon" href="favicon.ico">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -38,6 +39,14 @@
       </select>
     </div>
   </div>
+
+  <label for="caseRef">Referencia (opcional)</label>
+  <input type="text" id="caseRef" maxlength="80" placeholder="CASE-12345 o nombre del cliente" autocomplete="off">
+  <p class="hint">Se guarda sin cifrar y la verá quien abra el link. No pongas datos sensibles.</p>
+
+  <label for="pass">Passphrase (opcional)</label>
+  <input type="password" id="pass" autocomplete="new-password" placeholder="Mínimo 8 caracteres">
+  <p class="hint">Compártela por otro canal (chat, llamada), nunca junto al link. Sin ella, el link no descifra nada.</p>
 
   <label class="check"><input type="checkbox" id="notify"> Quiero recordatorio de rotación por email</label>
   <div id="notifyBox" hidden>

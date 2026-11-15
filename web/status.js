@@ -29,7 +29,9 @@ async function load() {
   $('headline').className = cls;
   $('headline').textContent = text;
   const dl = $('stat'); dl.replaceChildren(); dl.hidden = false;
+  if (d.caseRef) row(dl, 'Referencia', d.caseRef);
   row(dl, 'Lecturas', `${d.reads} de ${d.maxUses}`);
+  (d.readLog ?? []).forEach((t, i) => row(dl, `Lectura ${i + 1}`, when(t)));
   row(dl, 'Creado', when(d.createdAt));
   row(dl, 'Expira', when(d.expiresAt));
   if (d.notify) row(dl, 'Recordatorios', `${d.attempts} de 3`);

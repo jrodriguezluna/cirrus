@@ -33,8 +33,17 @@ async function mail(to, subject, text) {
   }
 }
 
+const tag = (m) => (m.caseRef ? ` [${m.caseRef}]` : '');
+const refLines = (m) => (m.caseRef ? [`Referencia: ${m.caseRef}`, ''] : []);
+const when = (t) => new Date(t * 1000).toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+const readLines = (m) => ((m.readLog ?? []).length
+  ? ['Lecturas:', ...m.readLog.map((t, i) => `  ${i + 1}) ${when(t)}`), '']
+  : []);
+
 function steps(m) {
   const kid = m.keyId ?? 'TU_KEY_ID';
+  const gkey = m.keyId ?? 'KEY_ID';
+  const acct = m.account ?? 'SA_EMAIL';
   switch (m.credClass) {
     case 'aws-access-key':
       return [
@@ -44,6 +53,28 @@ function steps(m) {
       ];
     case 'aws-temp':
       return ['Es una credencial temporal: expira sola. Revoca las sesiones del rol en IAM solo si su duración era larga.'];
+    case 'gcp-sa':
+      return [
+        `Desactiva la clave (reversible):\n   gcloud iam service-accounts keys disable ${gkey} --iam-account=${acct}`,
+        `Confirma que nada se rompió y elimínala:\n   gcloud iam service-accounts keys delete ${gkey} --iam-account=${acct}`,
+        'Revisa su actividad reciente en Cloud Audit Logs.',
+      ];
+    case 'azure-secret':
+      return [
+        'Ubica el secreto en la aplicación:\n   az ad app credential list --id APP_ID',
+        'Elimínalo:\n   az ad app credential delete --id APP_ID --key-id KEY_ID',
+        'Revisa los inicios de sesión recientes de la aplicación en Microsoft Entra.',
+      ];
+    case 'github-token':
+      return [
+        'Elimina el token en GitHub: Settings > Developer settings > Personal access tokens.',
+        'Revisa el registro de auditoría de la cuenta u organización en busca de uso inesperado.',
+      ];
+    case 'slack-token':
+      return [
+        'Revoca el token desde la configuración de la app en api.slack.com/apps (o reinstala la app para regenerarlo).',
+        'Revisa los registros de acceso del workspace.',
+      ];
     case 'pem':
       return ['Genera un par de claves nuevo, reemplaza la clave pública autorizada y elimina la anterior.'];
     case 'conn-string':
@@ -80,10 +111,12 @@ async function notifyRead({ id }) {
   const m = await getMeta(id);
   await setStatus(id, 'READ');
   await mail(m.notifyEmail,
-    `Cirrus: tu secreto se leyó (${m.reads ?? 0} de ${m.maxUses})`,
+    `Cirrus${tag(m)}: tu secreto se leyó (${m.reads ?? 0} de ${m.maxUses})`,
     [
+      ...refLines(m),
       `Tu secreto ${id.slice(0, 6)}… se consumió. El link ya no sirve, pero la credencial SIGUE ACTIVA en su cuenta de origen.`,
       '',
+      ...readLines(m),
       'Checklist de rotación:',
       checklist(m),
       '',
@@ -99,11 +132,13 @@ async function notifyExpired({ id }) {
   await setStatus(id, 'EXPIRED');
   if (reads > 0) {
     await mail(m.notifyEmail,
-      `Cirrus: tu secreto expiró con ${reads} de ${m.maxUses} lecturas`,
+      `Cirrus${tag(m)}: tu secreto expiró con ${reads} de ${m.maxUses} lecturas`,
       [
+        ...refLines(m),
         `Tu secreto ${id.slice(0, 6)}… expiró. Se leyó ${reads} de ${m.maxUses} veces.`,
         'Como alguien lo leyó, la credencial sigue activa y expuesta.',
         '',
+        ...readLines(m),
         'Checklist de rotación:',
         checklist(m),
         '',
@@ -111,8 +146,11 @@ async function notifyExpired({ id }) {
       ].join('\n'));
   } else {
     await mail(m.notifyEmail,
-      'Cirrus: tu secreto expiró sin leerse',
-      `Tu secreto ${id.slice(0, 6)}… expiró sin que nadie lo leyera. Si ya no necesitas esa credencial, desactívala igualmente.`);
+      `Cirrus${tag(m)}: tu secreto expiró sin leerse`,
+      [
+        ...refLines(m),
+        `Tu secreto ${id.slice(0, 6)}… expiró sin que nadie lo leyera. Si ya no necesitas esa credencial, desactívala igualmente.`,
+      ].join('\n'));
   }
   return { reads };
 }
@@ -132,8 +170,9 @@ async function sendReminder({ id }) {
   }));
   const m = r.Attributes;
   await mail(m.notifyEmail,
-    `Cirrus: recordatorio ${m.attempts} de 3, rota la credencial`,
+    `Cirrus${tag(m)}: recordatorio ${m.attempts} de 3, rota la credencial`,
     [
+      ...refLines(m),
       `Aún no confirmaste la rotación del secreto ${id.slice(0, 6)}….`,
       '',
       'Checklist de rotación:',
@@ -148,8 +187,11 @@ async function giveUp({ id }) {
   const m = await getMeta(id);
   await setStatus(id, 'GAVE_UP');
   await mail(m.notifyEmail,
-    'Cirrus: último aviso, la credencial podría seguir activa',
-    `Enviamos 3 recordatorios sobre el secreto ${id.slice(0, 6)}… sin confirmación. Dejamos de insistir; la credencial podría seguir activa.`);
+    `Cirrus${tag(m)}: último aviso, la credencial podría seguir activa`,
+    [
+      ...refLines(m),
+      `Enviamos 3 recordatorios sobre el secreto ${id.slice(0, 6)}… sin confirmación. Dejamos de insistir; la credencial podría seguir activa.`,
+    ].join('\n'));
   return { ok: true };
 }
 
