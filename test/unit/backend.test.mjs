@@ -121,6 +121,8 @@ describe('create: validación de entrada', () => {
   const notifyMalo = [
     ['email inválido', { email: 'no-es-un-email' }, 'invalid_email'],
     ['tipo de credencial desconocido', { email: 'a@b.co', credClass: 'inventado' }, 'invalid_class'],
+    ['idioma no soportado', { email: 'a@b.co', lang: 'fr' }, 'invalid_lang'],
+    ['idioma que no es texto', { email: 'a@b.co', lang: 1 }, 'invalid_lang'],
     ['keyId que no corresponde al tipo', { email: 'a@b.co', credClass: 'aws-access-key', keyId: 'AKIA-corta' }, 'invalid_key_id'],
     ['keyId en un tipo sin ID', { email: 'a@b.co', credClass: 'github-token', keyId: AKIA }, 'invalid_key_id'],
     ['account en un tipo que no es service account de GCP', { email: 'a@b.co', credClass: 'aws-access-key', account: 'x@y.co' }, 'invalid_account'],
@@ -313,7 +315,7 @@ describe('lifecycle: correo al agotar los usos', () => {
     const { mail } = await mailFor('notifyRead', c.id, lecturas);
     assert.match(mail.text, /Checklist de rotación/);
     assert.match(mail.text, /SIGUE ACTIVA/);
-    assert.match(mail.text, /site\.test\/ack\.html#/);
+    assert.match(mail.text, /site\.test\/ack\.html\?lang=es#/);   // el link lleva el idioma del correo
     assert.ok(mail.text.includes(`aws iam update-access-key`) && mail.text.includes(AKIA));
   });
 
@@ -332,7 +334,7 @@ describe('lifecycle: correo al agotar los usos', () => {
     delete store.get(`META#${c.id}`).rotate;
     const { mail } = await mailFor('notifyRead', c.id, lecturas);
     assert.match(mail.text, /Checklist de rotación/);
-    assert.match(mail.text, /ack\.html#/);
+    assert.match(mail.text, /ack\.html\?lang=es#/);
   });
 
   it('marca el estado como READ', async () => {
@@ -406,7 +408,7 @@ describe('lifecycle: primer acceso, recordatorios y cierre', () => {
     assert.equal(store.get(`META#${c.id}`).attempts, 1);
     assert.match(mail.subject, /recordatorio 1 de 3/);
     assert.match(mail.text, /Checklist de rotación/);
-    assert.match(mail.text, /ack\.html#/);
+    assert.match(mail.text, /ack\.html\?lang=es#/);
   });
   it('checkAck refleja la confirmación y los intentos', async () => {
     const c = await make({}, { email: 'a@b.co' });

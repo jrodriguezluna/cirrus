@@ -22,8 +22,17 @@ export async function launch() {
   const browser = await puppeteer.launch({ executablePath: chrome, headless: true, args: ['--no-sandbox'] });
   const problems = [];   // errores y avisos de consola, errores de página y recursos que fallaron (incluye violaciones de CSP)
 
-  async function open(url, { width = 1100, height = 900, bypassCSP = false, reducedMotion = false, colorScheme = 'light' } = {}) {
-    const page = await browser.newPage();
+  // isolated: contexto de navegador nuevo, con su propio localStorage (para probar el idioma elegido sin contaminar otras pruebas)
+  async function open(url, { width = 1100, height = 900, bypassCSP = false, reducedMotion = false, colorScheme = 'light', isolated = false, languages = null } = {}) {
+    const context = isolated ? await browser.createBrowserContext() : null;
+    const page = await (context ?? browser).newPage();
+    if (context) page.on('close', () => context.close().catch(() => {}));
+    // La interfaz elige idioma según navigator.languages: se fija en español para que las pruebas no dependan del equipo.
+    // `languages` lo cambia para probar la detección automática.
+    await page.evaluateOnNewDocument((l) => {
+      Object.defineProperty(navigator, 'languages', { get: () => l });
+      Object.defineProperty(navigator, 'language', { get: () => l[0] });
+    }, languages ?? ['es-ES', 'es']);
     if (bypassCSP) await page.setBypassCSP(true);     // solo para inyectar axe-core
     page.on('console', (m) => { if (['error', 'warning'].includes(m.type())) problems.push(`${m.type()}: ${m.text()}`); });
     page.on('pageerror', (e) => problems.push(`pageerror: ${e.message}`));

@@ -71,15 +71,15 @@ describe('teclado', { skip }, () => {
   it('el orden de Tab en index es lógico y todo muestra un foco visible', async () => {
     const page = await ctx.open('/index.html');
     const vistos = [];
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < 9; i++) {
       await page.keyboard.press('Tab');
       vistos.push(await page.evaluate(() => {
         const e = document.activeElement; const cs = getComputedStyle(e);
         return { id: e.id || e.className.split(' ')[0] || e.tagName.toLowerCase(), foco: (cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) > 0) || cs.boxShadow !== 'none' };
       }));
     }
-    // logo, secreto, caducidad (1 parada), usos (1 parada), "Más opciones", seguimiento, botón
-    assert.deepEqual(vistos.map((v) => v.id), ['brand', 'secret', 'seg-opt', 'seg-opt', 'summary', 'notify', 'go']);
+    // idioma ES y EN, logo, secreto, caducidad (1 parada), usos (1 parada), "Más opciones", seguimiento, botón
+    assert.deepEqual(vistos.map((v) => v.id), ['lang-opt', 'lang-opt', 'brand', 'secret', 'seg-opt', 'seg-opt', 'summary', 'notify', 'go']);
     assert.ok(vistos.every((v) => v.foco), `sin foco visible: ${JSON.stringify(vistos.filter((v) => !v.foco))}`);
     await page.close();
   });

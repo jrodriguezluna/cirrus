@@ -15,13 +15,15 @@ define `CHROME_PATH=/ruta/a/chrome` (si no hay ninguno, esas pruebas se omiten e
 
 | Carpeta | Qué prueba |
 |---|---|
-| `unit/backend.test.mjs` | Los handlers reales de `src/` (create, reveal, ack, status, lifecycle): validación, lectura atómica, avisos por email, rotación opcional, checklist por tipo de credencial |
+| `unit/backend.test.mjs` | Los handlers reales de `src/` (create, reveal, ack, status, lifecycle): validación, lectura atómica, avisos por email (también en inglés: `unit/email.test.mjs`), rotación opcional, checklist por tipo de credencial |
 | `unit/detect.test.mjs` | Reconocimiento del tipo de credencial (`web/detect.js`), falsos positivos y tipos aún no reconocidos |
 | `unit/state-machine.test.mjs` | Integridad del ASL, reintentos, acciones que existen en `lifecycle` y enrutado según `rotate` |
+| `unit/i18n.test.mjs` | Diccionarios es/en con las mismas claves y parámetros, claves usadas por el HTML y el JS que existen (y ninguna sobrante), detección en los dos idiomas |
 | `unit/web-static.test.mjs` | Reglas de la CSP: sin estilos ni scripts en línea, recursos que existen, nada se interpreta como HTML |
 | `ui/form.test.mjs` | Formulario, privacidad (el servidor solo recibe texto cifrado), seguimiento y rotación |
 | `ui/reveal.test.mjs` | Revelar con cifrado real: un uso, varios usos, passphrase, expiración, links rotos |
 | `ui/status-ack.test.mjs` | Página de estado en cada modo y confirmación de rotación |
+| `ui/i18n.test.mjs` | Interruptor ES \| EN, persistencia, detección del idioma del navegador, traducción en vivo, `notify.lang` enviado al backend, accesibilidad en inglés |
 | `ui/a11y.test.mjs` | axe-core (WCAG 2.1 A/AA), teclado, 320 px, movimiento reducido, tema claro, fuente bajo la CSP |
 
 ## Límites a tener presentes

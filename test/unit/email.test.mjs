@@ -144,7 +144,7 @@ describe('email: correos de lifecycle', () => {
   it('con rotación: el HTML trae el botón de confirmación con el token correcto, la lista y el comando', async () => {
     const c = await make({}, { email: 'a@b.co', credClass: 'aws-access-key', keyId: AKIA, rotate: true });
     const m = await mailFor('notifyRead', c.id, lecturas);
-    assert.ok(m.html.includes(`<a href="https://site.test/ack.html#${c.id}:${c.meta.ackToken}"`));
+    assert.ok(m.html.includes(`<a href="https://site.test/ack.html?lang=es#${c.id}:${c.meta.ackToken}"`));
     assert.match(m.html, /<ol /);
     assert.match(m.html, /<pre[^>]*>aws iam update-access-key --user-name USUARIO --access-key-id AKIAIOSFODNN7EXAMPLE --status Inactive<\/pre>/);
     assert.match(m.html, /SIGUE ACTIVA/);
@@ -182,5 +182,137 @@ describe('email: correos de lifecycle', () => {
     const c = await make({}, { email: 'a@b.co', rotate: true });
     const m = await mailFor('sendReminder', c.id);
     assert.match(m.html, /<h1[^>]*>Recordatorio 1 de 3: rota la credencial<\/h1>/);
+  });
+});
+
+// ---------------------------------------------------------------- idioma de los correos
+// El emisor elige es / en en la web (notify.lang); todos los avisos salen en ese idioma.
+const ACCIONES = [
+  ['notifyFirstRead', { reads: 1, readLog: [1700000000] }],
+  ['notifyRead', lecturas],
+  ['notifyExpired', lecturas],
+  ['notifyExpired', { reads: 0, readLog: [] }],
+  ['sendReminder', {}],
+  ['giveUp', {}],
+];
+// Palabras que solo aparecen en los textos en español
+const ESPANOL = /\b(tu secreto|Tu secreto|secreto|Recordatorio|Checklist|credencial|Referencia|Lecturas|Enviado por|Desactiva|Revisa|Último|expiró|abrió|leyó)\b/;
+
+describe('email: idioma elegido por el emisor', () => {
+  it('create guarda el idioma en META; sin idioma, español; sin seguimiento no se guarda nada', async () => {
+    assert.equal((await make({}, { email: 'a@b.co', lang: 'en' })).meta.lang, 'en');
+    assert.equal((await make({}, { email: 'a@b.co', lang: 'es' })).meta.lang, 'es');
+    assert.equal((await make({}, { email: 'a@b.co' })).meta.lang, 'es');
+    assert.equal((await make({}, undefined)).meta.lang, undefined);
+  });
+
+  it('todos los avisos en inglés: asunto, HTML (lang="en") y texto, sin rastro del español', async () => {
+    const c = await make({ caseRef: 'CASE-1' }, { email: 'a@b.co', credClass: 'aws-access-key', keyId: AKIA, rotate: true, lang: 'en' });
+    for (const [accion, patch] of ACCIONES) {
+      const m = await mailFor(accion, c.id, patch);
+      assert.ok(m, accion);
+      assert.match(m.html, /<html lang="en">/, accion);
+      assert.doesNotMatch(m.subject, ESPANOL, `${accion}: asunto «${m.subject}»`);
+      assert.doesNotMatch(m.text, ESPANOL, `${accion}: texto`);
+      assert.doesNotMatch(m.html.replace(/<[^>]+>/g, ' '), ESPANOL, `${accion}: HTML`);
+      assert.match(m.text, /Reference: CASE-1/, accion);
+      assert.match(m.html, /Sent by Cirrus/, accion);
+    }
+  });
+
+  it('mismo aviso, mismo contenido: en inglés cambia el idioma, no la estructura', async () => {
+    const lectura = async (lang) => {
+      const c = await make({ caseRef: 'CASE-1' }, { email: 'a@b.co', credClass: 'aws-access-key', keyId: AKIA, rotate: true, lang });
+      return mailFor('notifyRead', c.id, lecturas);
+    };
+    const es = await lectura('es'), en = await lectura('en');
+    const forma = (m) => m.html.replace(/<html lang="\w+">/, '<html>').replace(/>[^<]+</g, '><').replace(/ack\.html\?lang=\w+#[\w-]+:[\w-]+/, 'ACK').replace(/\s+/g, ' ');
+    assert.equal(forma(en), forma(es));
+    assert.equal(en.subject, 'Cirrus [CASE-1]: your secret was fully read (3 of 3)');
+    assert.equal(es.subject, 'Cirrus [CASE-1]: tu secreto se leyó por completo (3 de 3)');
+    assert.match(en.text, /Your secret \w+… has used up all its uses\. The link no longer works\./);
+    assert.match(en.text, /But the credential is STILL ACTIVE in its source account\./);
+    assert.match(en.text, /Rotation checklist:\n1\. Deactivate the key \(reversible\):\n {3}aws iam update-access-key --user-name USERNAME/);
+    assert.match(en.text, /Reads:\n {2}1\) 2023-11-14 22:13:20 UTC/);
+  });
+
+  it('el link de confirmación lleva el idioma del correo, para que la página se abra igual', async () => {
+    for (const lang of ['es', 'en']) {
+      const c = await make({}, { email: 'a@b.co', rotate: true, lang });
+      for (const accion of ['notifyRead', 'sendReminder']) {
+        const m = await mailFor(accion, c.id, lecturas);
+        assert.ok(m.html.includes(`href="https://site.test/ack.html?lang=${lang}#${c.id}:${c.meta.ackToken}"`), `${lang} ${accion}`);
+        assert.ok(m.text.includes(`https://site.test/ack.html?lang=${lang}#${c.id}:${c.meta.ackToken}`), `${lang} ${accion} (texto)`);
+      }
+    }
+  });
+
+  it('el checklist en inglés tiene los mismos pasos y los mismos comandos que el español', async () => {
+    const normalizar = (s) => s.replaceAll('USERNAME', 'USUARIO').replaceAll('YOUR_KEY_ID', 'TU_KEY_ID');
+    for (const clase of ['aws-access-key', 'gcp-sa', 'azure-secret', 'github-token', 'slack-token', 'pem', 'conn-string', 'env', 'aws-temp', 'generic']) {
+      const extra = clase === 'gcp-sa' ? { keyId: 'b'.repeat(40), account: 'robot@demo.iam.gserviceaccount.com' } : {};
+      const pasos = {};
+      for (const lang of ['es', 'en']) {
+        const c = await make({}, { email: 'a@b.co', credClass: clase, rotate: true, lang, ...extra });
+        const m = await mailFor('sendReminder', c.id);
+        pasos[lang] = m.text.split(/(?:Checklist de rotación|Rotation checklist):\n/)[1].split('\n\n')[0].split('\n');
+      }
+      assert.equal(pasos.en.length, pasos.es.length, `${clase}: distinto número de líneas`);
+      const comandos = (l) => l.filter((x) => /^ {3}\S/.test(x)).map(normalizar);
+      assert.deepEqual(comandos(pasos.en), comandos(pasos.es), `${clase}: los comandos no deben traducirse`);
+      const prosa = (l) => l.filter((x) => /^\d+\. /.test(x));
+      assert.notDeepEqual(prosa(pasos.en), prosa(pasos.es), `${clase}: sin traducir`);
+    }
+  });
+
+  it('en inglés, HTML y texto cuentan lo mismo: cada paso del checklist aparece en ambos', async () => {
+    for (const clase of ['aws-access-key', 'azure-secret', 'github-token', 'conn-string']) {
+      const c = await make({}, { email: 'a@b.co', credClass: clase, rotate: true, lang: 'en', ...(clase === 'aws-access-key' ? { keyId: AKIA } : {}) });
+      const m = await mailFor('sendReminder', c.id);
+      const pasos = m.text.split('Rotation checklist:\n')[1].split('\n\n')[0].split('\n').filter((l) => /^\d+\. /.test(l)).map((l) => l.replace(/^\d+\. /, ''));
+      assert.ok(pasos.length >= 1, clase);
+      for (const p of pasos) assert.ok(m.html.includes(esc(p)), `${clase}: falta en el HTML «${p}»`);
+    }
+  });
+
+  it('un recordatorio en inglés indica en el título cuántos van', async () => {
+    const c = await make({}, { email: 'a@b.co', rotate: true, lang: 'en' });
+    const m = await mailFor('sendReminder', c.id);
+    assert.match(m.html, /<h1[^>]*>Reminder 1 of 3: rotate the credential<\/h1>/);
+    assert.equal(m.subject, 'Cirrus: reminder 1 of 3, rotate the credential');
+  });
+
+  it('plural del primer acceso en inglés', async () => {
+    const c = await make({}, { email: 'a@b.co', lang: 'en' });          // 3 usos
+    const m = await mailFor('notifyFirstRead', c.id, { reads: 1, readLog: [1700000000] });
+    assert.match(m.text, /2 uses left of 3\./);
+    const m2 = await mailFor('notifyFirstRead', c.id, { reads: 2, readLog: [1700000000, 1700000100] });
+    assert.match(m2.text, /1 use left of 3\./);
+  });
+
+  it('un idioma desconocido o ausente en META (registros anteriores) cae en español', async () => {
+    const c = await make({}, { email: 'a@b.co', rotate: true, lang: 'en' });
+    for (const lang of [undefined, 'fr', '__proto__']) {
+      const meta = store.get(`META#${c.id}`);
+      if (lang === undefined) delete meta.lang; else meta.lang = lang;
+      const m = await mailFor('notifyRead', c.id, lecturas);
+      assert.match(m.html, /<html lang="es">/, String(lang));
+      assert.match(m.subject, /tu secreto se leyó por completo/);
+      assert.ok(m.html.includes('ack.html?lang=es#'), String(lang));
+    }
+  });
+
+  it('el renderizador acepta lang y por defecto usa español', () => {
+    const modelo = { heading: 'H', blocks: [{ type: 'ref', value: 'X' }, { type: 'reads', items: ['a'] }, { type: 'action', intro: 'i', label: 'l', url: 'https://x.test/' }] };
+    const en = render({ ...modelo, lang: 'en' });
+    assert.match(en.html, /<html lang="en">/);
+    assert.match(en.text, /^Reference: X\n\nReads:\n {2}1\) a/);
+    assert.match(en.html, />Reads<\/p>/);
+    assert.match(en.html, /If the button does not work, copy this link: https:\/\/x\.test\//);
+    const es = render(modelo);
+    assert.match(es.html, /<html lang="es">/);
+    assert.match(es.text, /^Referencia: X\n\nLecturas:/);
+    assert.deepEqual(render({ ...modelo, lang: 'fr' }), es);
+    assert.deepEqual(render({ ...modelo, lang: 'constructor' }), es);
   });
 });

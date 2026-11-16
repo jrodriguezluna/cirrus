@@ -48,7 +48,7 @@ describe('HTML compatible con la CSP', () => {
       it('declara idioma, viewport, título y esquema de color claro', () => {
         assert.match(html, /<html lang="es">/);
         assert.match(html, /<meta name="viewport"/);
-        assert.match(html, /<title>[^<]+<\/title>/);
+        assert.match(html, /<title[^>]*>[^<]+<\/title>/);
         assert.match(html, /<meta name="color-scheme" content="light">/);
       });
       it('comparte la cabecera con logo y el pie', () => {

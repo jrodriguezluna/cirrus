@@ -1,11 +1,12 @@
 // Control segmentado accesible construido sobre un <select>.
 // El <select> sigue siendo la fuente de verdad (oculto): el resto del código lee select.value.
-// Devuelve sync(): llamarla tras cambiar select.value por código para reflejarlo en la UI.
+// `label` es el nombre accesible del grupo: un texto o una función que lo devuelve (si cambia el idioma).
+// Devuelve sync(): llamarla tras cambiar select.value, o los textos de las opciones, por código
+// para reflejarlo en la UI.
 export function segmented(select, label) {
   const group = document.createElement('div');
   group.className = 'seg';
   group.setAttribute('role', 'radiogroup');
-  group.setAttribute('aria-label', label);
 
   const options = [...select.options];
   const buttons = options.map((opt) => {
@@ -14,12 +15,13 @@ export function segmented(select, label) {
     b.className = 'seg-opt';
     b.setAttribute('role', 'radio');
     b.dataset.value = opt.value;
-    b.textContent = opt.dataset.short ?? opt.textContent;
     return b;
   });
   group.append(...buttons);
 
   function sync() {
+    group.setAttribute('aria-label', typeof label === 'function' ? label() : label);
+    options.forEach((opt, i) => { buttons[i].textContent = opt.dataset.short ?? opt.textContent; });
     for (const b of buttons) {
       const on = b.dataset.value === select.value;
       b.setAttribute('aria-checked', String(on));

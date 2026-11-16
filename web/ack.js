@@ -1,11 +1,13 @@
+import { bind } from './i18n.js';   // primero: traduce la página antes de que corra el resto
 import { flyPlane } from './ui.js';
 
 const $ = (id) => document.getElementById(id);
 const [id, ackToken] = location.hash.slice(1).split(':');
 
-function say(text, cls) {
+// El mensaje queda enlazado a su clave: si cambia el idioma, se traduce solo
+function say(key, cls) {
   const m = $('msg');
-  m.textContent = text;
+  bind(m, key);
   m.className = cls;
   m.setAttribute('role', cls === 'err' ? 'alert' : 'status');
   m.hidden = false;
@@ -14,7 +16,7 @@ function say(text, cls) {
 if (!id || !ackToken) {
   $('ack').hidden = true;
   $('ackHint').hidden = true;
-  say('Este link está incompleto.', 'err');
+  say('link.incomplete', 'err');
 }
 
 $('ack').addEventListener('click', async () => {
@@ -26,14 +28,14 @@ $('ack').addEventListener('click', async () => {
     if (r.ok) {
       $('ack').hidden = true;
       $('ackHint').hidden = true;
-      say('Listo, rotación confirmada. No enviaremos más recordatorios.', 'ok check-line');
+      say('ack.done', 'ok check-line');
       flyPlane('takeoffPlane', 'takeoff');
     } else {
       $('ack').disabled = false;
-      say('No se pudo confirmar (link inválido o vencido).', 'err');
+      say('ack.fail', 'err');
     }
   } catch {
     $('ack').disabled = false;
-    say('Error de red. Inténtalo de nuevo.', 'err');
+    say('ack.net', 'err');
   }
 });

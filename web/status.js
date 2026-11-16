@@ -1,6 +1,14 @@
+import { bind, locale } from './i18n.js';   // primero: traduce la página antes de que corra el resto
+
 const $ = (id) => document.getElementById(id);
 const [id, token] = location.hash.slice(1).split(':');
-const when = (s) => (s ? new Date(s * 1000).toLocaleString() : '—');
+const when = (s) => (s ? new Date(s * 1000).toLocaleString(locale()) : '—');
+// Fecha como valor de un texto enlazado: se vuelve a formatear si cambia el idioma
+const date = (s) => ['status.date', { date: () => when(s) }];
+const count = (d) => ['status.count', { n: d.reads, max: d.maxUses }];
+
+// Todos los textos se enlazan a una clave de traducción (bind): si cambia el idioma, se escriben
+// de nuevo solos, sin repetir la lógica de estado. Un texto es [clave, parámetros].
 
 // ¿Hay ciclo de rotación (checklist, recordatorios, confirmación)? Solo si hay seguimiento por email
 // y el emisor pidió rotación. Una API anterior sin `rotate` se interpreta como con rotación.
@@ -16,43 +24,44 @@ function derive(d) {
   return { fullyRead, expired };
 }
 
+// -> [clase, clave, parámetros]
 function headline(d, { fullyRead, expired }) {
-  if (d.status === 'ACKED') return ['ok', 'Rotación confirmada. Ciclo cerrado.'];
-  if (d.status === 'GAVE_UP') return ['err', 'Sin confirmar tras 3 recordatorios: la credencial podría seguir activa.'];
+  if (d.status === 'ACKED') return ['ok', 'status.h.acked'];
+  if (d.status === 'GAVE_UP') return ['err', 'status.h.gaveUp'];
   if (fullyRead) {
-    if (tracksRotation(d)) return ['err', 'Leído por completo. Rotación pendiente de confirmación.'];
-    return ['hint', d.notify ? 'Leído por completo. Te avisamos por email.' : 'Leído por completo. No hay seguimiento activo.'];
+    if (tracksRotation(d)) return ['err', 'status.h.fullRot'];
+    return ['hint', d.notify ? 'status.h.fullMail' : 'status.h.fullNone'];
   }
   if (expired && d.reads > 0) {
-    const base = `Expiró y se leyó ${d.reads} de ${d.maxUses} veces.`;
-    if (tracksRotation(d)) return ['err', `${base} Rotación pendiente de confirmación.`];
-    return ['hint', d.notify ? `${base} Te avisamos por email.` : base];
+    const p = { reads: d.reads, max: d.maxUses };
+    if (tracksRotation(d)) return ['err', 'status.h.expReadRot', p];
+    return ['hint', d.notify ? 'status.h.expReadMail' : 'status.h.expRead', p];
   }
-  if (expired) return ['hint', 'Expiró sin que nadie lo leyera.'];
-  if (d.reads > 0) return ['hint', `En uso: ${d.reads} de ${d.maxUses} lecturas.`];
-  return ['hint', 'Creado, todavía nadie lo ha leído.'];
+  if (expired) return ['hint', 'status.h.expUnread'];
+  if (d.reads > 0) return ['hint', 'status.h.inUse', { reads: d.reads, max: d.maxUses }];
+  return ['hint', 'status.h.created'];
 }
 
 // Pasos del progreso: Creado → Leído → Rotado (o Cerrado si no hay seguimiento)
+// Cada paso: { label: clave, sub: [clave, parámetros], state }
 function steps(d, { fullyRead, expired }) {
   const read = d.reads > 0;
-  const count = `${d.reads} de ${d.maxUses}`;
-  const out = [{ label: 'Creado', sub: when(d.createdAt), state: 'done' }];
+  const out = [{ label: 'status.s.created', sub: date(d.createdAt), state: 'done' }];
 
-  if (fullyRead || (expired && read)) out.push({ label: 'Leído', sub: count, state: 'done' });
-  else if (expired) out.push({ label: 'Sin leer', sub: 'Expiró', state: 'warn' });
-  else out.push({ label: 'Leído', sub: read ? count : 'Esperando', state: 'current' });
+  if (fullyRead || (expired && read)) out.push({ label: 'status.s.read', sub: count(d), state: 'done' });
+  else if (expired) out.push({ label: 'status.s.unread', sub: ['status.sub.expired'], state: 'warn' });
+  else out.push({ label: 'status.s.read', sub: read ? count(d) : ['status.sub.waiting'], state: 'current' });
 
   if (tracksRotation(d)) {
-    if (d.status === 'ACKED') out.push({ label: 'Rotado', sub: 'Confirmado', state: 'done' });
-    else if (d.status === 'GAVE_UP') out.push({ label: 'Rotado', sub: 'Sin confirmar', state: 'warn' });
-    else if (fullyRead || (expired && read)) out.push({ label: 'Rotado', sub: `Recordatorios ${d.attempts} de 3`, state: 'current' });
-    else if (expired) out.push({ label: 'Cerrado', sub: 'Sin recordatorios', state: 'done' });
-    else out.push({ label: 'Rotado', sub: 'Pendiente', state: 'pending' });
+    if (d.status === 'ACKED') out.push({ label: 'status.s.rotated', sub: ['status.sub.confirmed'], state: 'done' });
+    else if (d.status === 'GAVE_UP') out.push({ label: 'status.s.rotated', sub: ['status.sub.unconfirmed'], state: 'warn' });
+    else if (fullyRead || (expired && read)) out.push({ label: 'status.s.rotated', sub: ['status.sub.reminders', { n: d.attempts }], state: 'current' });
+    else if (expired) out.push({ label: 'status.s.closed', sub: ['status.sub.noReminders'], state: 'done' });
+    else out.push({ label: 'status.s.rotated', sub: ['status.sub.pending'], state: 'pending' });
   } else if (fullyRead || expired) {
-    out.push({ label: 'Cerrado', sub: fullyRead ? 'Usos agotados' : 'Expirado', state: 'done' });
+    out.push({ label: 'status.s.closed', sub: [fullyRead ? 'status.sub.exhausted' : 'status.sub.expiredShort'], state: 'done' });
   } else {
-    out.push({ label: 'Cerrado', sub: 'Pendiente', state: 'pending' });
+    out.push({ label: 'status.s.closed', sub: ['status.sub.pending'], state: 'pending' });
   }
   return out;
 }
@@ -64,10 +73,12 @@ function finished(d, { fullyRead, expired }) {
   return expired && d.reads === 0;     // sin lecturas no habrá recordatorios
 }
 
+// Elemento con texto fijo (cls, text) o enlazado a una clave (text = [clave, parámetros])
 function el(tag, cls, text) {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
-  if (text !== undefined) e.textContent = text;
+  if (Array.isArray(text)) bind(e, text[0], text[1]);
+  else if (text !== undefined) e.textContent = text;
   return e;
 }
 
@@ -76,13 +87,14 @@ function renderSteps(list) {
   ol.replaceChildren(...list.map((s, i) => {
     const li = el('li', `step ${s.state}`);
     li.append(el('span', 'mark', s.state === 'done' ? '' : s.state === 'warn' ? '!' : String(i + 1)));
-    li.append(el('span', 'label', s.label), el('span', 'sub', s.sub));
+    li.append(el('span', 'label', [s.label]), el('span', 'sub', s.sub));
     if (s.state === 'current') li.setAttribute('aria-current', 'step');
     return li;
   }));
   ol.hidden = false;
 }
 
+// k: [clave, parámetros]; v: texto literal (dato del emisor) o [clave, parámetros]
 function row(dl, k, v) {
   dl.append(el('dt', '', k), el('dd', '', v));
 }
@@ -90,17 +102,17 @@ function row(dl, k, v) {
 function renderDetails(d) {
   const dl = $('stat');
   dl.replaceChildren();
-  if (d.caseRef) row(dl, 'Referencia', d.caseRef);
-  row(dl, 'Lecturas', `${d.reads} de ${d.maxUses}`);
-  (d.readLog ?? []).forEach((t, i) => row(dl, `Lectura ${i + 1}`, when(t)));
-  row(dl, 'Creado', when(d.createdAt));
-  row(dl, 'Expira', when(d.expiresAt));
-  if (tracksRotation(d)) row(dl, 'Recordatorios', `${d.attempts} de 3`);
+  if (d.caseRef) row(dl, ['status.d.ref'], d.caseRef);
+  row(dl, ['status.d.reads'], count(d));
+  (d.readLog ?? []).forEach((s, i) => row(dl, ['status.d.read', { n: i + 1 }], date(s)));
+  row(dl, ['status.s.created'], date(d.createdAt));
+  row(dl, ['status.d.expires'], date(d.expiresAt));
+  if (tracksRotation(d)) row(dl, ['status.d.reminders'], ['status.d.reminderCount', { n: d.attempts }]);
   dl.hidden = false;
 }
 
-function live(text, on) {
-  $('liveText').textContent = text;
+function live(key, on) {
+  bind($('liveText'), key);
   $('live').classList.toggle('off', !on);
   $('live').hidden = false;
 }
@@ -108,9 +120,14 @@ function live(text, on) {
 let timer;
 let lastSig = '';
 
-function stop(text) {
+function stop(key) {
   clearInterval(timer);
-  live(text, false);
+  live(key, false);
+}
+
+function problem(key) {
+  $('headline').className = 'err';
+  bind($('headline'), key);
 }
 
 async function load() {
@@ -118,12 +135,11 @@ async function load() {
   try {
     r = await fetch(`/api/secrets/${encodeURIComponent(id)}/status`, { headers: { 'X-Status-Token': token } });
   } catch {
-    live('Sin conexión, reintentando…', false);
+    live('status.live.offline', false);
     return;
   }
   if (!r.ok) {
-    $('headline').className = 'err';
-    $('headline').textContent = 'No se encontró este secreto o el link es inválido.';
+    problem('status.notFound');
     clearInterval(timer);
     return;
   }
@@ -134,20 +150,20 @@ async function load() {
   const sig = JSON.stringify([d, x.fullyRead, x.expired]);
   if (sig !== lastSig) {
     lastSig = sig;
-    const [cls, text] = headline(d, x);
+    const [cls, key, params] = headline(d, x);
     $('headline').className = cls;
-    $('headline').textContent = text;
+    bind($('headline'), key, params);
     renderSteps(steps(d, x));
     renderDetails(d);
   }
-  if (finished(d, x)) stop('Sin cambios pendientes: ya no se actualiza.');
-  else live('Se actualiza solo cada 5 segundos.', true);
+  if (finished(d, x)) stop('status.live.off');
+  else live('status.live.on', true);
 }
 
 if (!id || !token) {
-  $('headline').className = 'err';
-  $('headline').textContent = 'Este link está incompleto.';
+  problem('link.incomplete');
 } else {
+  bind($('headline'), 'status.loading');
   load();
   timer = setInterval(load, 5000);
 }

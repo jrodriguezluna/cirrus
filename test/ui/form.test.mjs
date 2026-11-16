@@ -196,7 +196,7 @@ describe('formulario: seguimiento y rotación', { skip }, () => {
     await page.type('#email', 'yo@correo.com');
     await crear(page);
     const { notify } = await ctx.api.lastCreate();
-    assert.deepEqual(notify, { email: 'yo@correo.com', credClass: 'aws-access-key', rotate: true, keyId: 'AKIAIOSFODNN7EXAMPLE' });
+    assert.deepEqual(notify, { email: 'yo@correo.com', credClass: 'aws-access-key', rotate: true, keyId: 'AKIAIOSFODNN7EXAMPLE', lang: 'es' });
     const r = await resultado(page);
     assert.ok(r.chips.includes('Con recordatorio de rotación'));
     assert.match(r.ayuda, /checklist de rotación y recordatorios/);

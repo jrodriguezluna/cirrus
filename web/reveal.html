@@ -6,7 +6,7 @@
   <meta name="referrer" content="no-referrer">
   <meta name="theme-color" content="#c6defa">
   <meta name="color-scheme" content="light">
-  <title>Cirrus · revelar secreto</title>
+  <title data-i18n="reveal.title">Cirrus · revelar secreto</title>
   <link rel="icon" href="favicon.ico" sizes="48x48">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="preload" href="fonts/nunito-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -14,11 +14,11 @@
 </head>
 <body>
 <header class="site-header">
-  <a class="brand" href="/" aria-label="Cirrus, inicio"><img src="logo.svg" alt="Cirrus" width="260" height="100"></a>
+  <a class="brand" href="/" aria-label="Cirrus, inicio" data-i18n-attr="aria-label:brand.aria"><img src="logo.svg" alt="Cirrus" width="260" height="100"></a>
 </header>
 <main>
-  <h1>Te compartieron un secreto</h1>
-  <p class="sub">Se descifra en tu navegador al pulsar el botón.</p>
+  <h1 data-i18n="reveal.h1">Te compartieron un secreto</h1>
+  <p class="sub" data-i18n="reveal.sub">Se descifra en tu navegador al pulsar el botón.</p>
   <p id="refLine" class="ref" hidden></p>
 
   <div id="meter" class="meter" hidden>
@@ -27,23 +27,23 @@
   </div>
 
   <div id="passBox" class="pass-box" hidden>
-    <label for="pass">Passphrase</label>
+    <label for="pass" data-i18n="reveal.pass.label">Passphrase</label>
     <input type="password" id="pass" autocomplete="off">
-    <label class="check small"><input type="checkbox" id="showPass"> Mostrar passphrase</label>
-    <p class="hint">El emisor debió enviártela por otro canal.</p>
+    <label class="check small"><input type="checkbox" id="showPass"> <span data-i18n="reveal.pass.show">Mostrar passphrase</span></label>
+    <p class="hint" data-i18n="reveal.pass.hint">El emisor debió enviártela por otro canal.</p>
   </div>
 
   <button id="reveal" class="btn-plane">Revelar secreto</button>
   <p id="msg" aria-live="polite" hidden></p>
   <pre id="secret" class="secret" hidden></pre>
   <div id="actions" class="actions" hidden>
-    <button class="secondary" id="copy">Copiar</button>
-    <button class="secondary" id="dissolve">Disipar de la pantalla</button>
+    <button class="secondary" id="copy" data-i18n="reveal.copy">Copiar</button>
+    <button class="secondary" id="dissolve" data-i18n="reveal.dissolve">Disipar de la pantalla</button>
   </div>
-  <a id="homeLink" class="home-link" href="/" hidden>Crear mi propio secreto</a>
+  <a id="homeLink" class="home-link" href="/" hidden data-i18n="reveal.home">Crear mi propio secreto</a>
 </main>
 <footer class="site-footer">
-  <p>Hecho para AWS Builder Center. Los secretos se cifran en tu navegador: el servidor nunca los ve.</p>
+  <p data-i18n="footer">Hecho para AWS Builder Center. Los secretos se cifran en tu navegador: el servidor nunca los ve.</p>
 </footer>
 
 <script type="module" src="reveal.js"></script>

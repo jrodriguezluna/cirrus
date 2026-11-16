@@ -3,6 +3,7 @@ import { DynamoDBDocumentClient, GetCommand, UpdateCommand, DeleteCommand } from
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
 import { SFNClient, SendTaskSuccessCommand } from '@aws-sdk/client-sfn';
 import { render } from './email.mjs';
+import { messages, normalizeLang } from './messages.mjs';
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const ses = new SESv2Client({});
@@ -19,10 +20,10 @@ const setStatus = (id, status) => ddb.send(new UpdateCommand({
 }));
 
 // Envía un correo con dos versiones del mismo contenido: HTML y texto plano.
-// `model` = { heading, blocks } (ver email.mjs). Sin destinatario no hace nada.
-async function mail(to, subject, model) {
+// `model` = { heading, blocks } (ver email.mjs); `lang` es el idioma del emisor. Sin destinatario no hace nada.
+async function mail(to, subject, model, lang) {
   if (!to) return;
-  const { text, html } = render(model);
+  const { text, html } = render({ ...model, lang });
   try {
     await ses.send(new SendEmailCommand({
       FromEmailAddress: process.env.SENDER,
@@ -40,67 +41,22 @@ async function mail(to, subject, model) {
 const tag = (m) => (m.caseRef ? ` [${m.caseRef}]` : '');
 const when = (t) => new Date(t * 1000).toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
 const short = (id) => `${id.slice(0, 6)}…`;
-const queda = (n, max) => `${n === 1 ? 'Queda 1 uso' : `Quedan ${n} usos`} de ${max}`;
-
-function steps(m) {
-  const kid = m.keyId ?? 'TU_KEY_ID';
-  const gkey = m.keyId ?? 'KEY_ID';
-  const acct = m.account ?? 'SA_EMAIL';
-  // Un paso puede llevar un comando: va tras "\n   " (se muestra aparte en el HTML)
-  switch (m.credClass) {
-    case 'aws-access-key':
-      return [
-        `Desactiva la key (reversible):\n   aws iam update-access-key --user-name USUARIO --access-key-id ${kid} --status Inactive`,
-        `Confirma que nada se rompió y elimínala:\n   aws iam delete-access-key --user-name USUARIO --access-key-id ${kid}`,
-        'Revisa su actividad reciente en CloudTrail.',
-      ];
-    case 'aws-temp':
-      return ['Es una credencial temporal: expira sola. Revoca las sesiones del rol en IAM solo si su duración era larga.'];
-    case 'gcp-sa':
-      return [
-        `Desactiva la clave (reversible):\n   gcloud iam service-accounts keys disable ${gkey} --iam-account=${acct}`,
-        `Confirma que nada se rompió y elimínala:\n   gcloud iam service-accounts keys delete ${gkey} --iam-account=${acct}`,
-        'Revisa su actividad reciente en Cloud Audit Logs.',
-      ];
-    case 'azure-secret':
-      return [
-        'Ubica el secreto en la aplicación:\n   az ad app credential list --id APP_ID',
-        'Elimínalo:\n   az ad app credential delete --id APP_ID --key-id KEY_ID',
-        'Revisa los inicios de sesión recientes de la aplicación en Microsoft Entra.',
-      ];
-    case 'github-token':
-      return [
-        'Elimina el token en GitHub: Settings > Developer settings > Personal access tokens.',
-        'Revisa el registro de auditoría de la cuenta u organización en busca de uso inesperado.',
-      ];
-    case 'slack-token':
-      return [
-        'Revoca el token desde la configuración de la app en api.slack.com/apps (o reinstala la app para regenerarlo).',
-        'Revisa los registros de acceso del workspace.',
-      ];
-    case 'pem':
-      return ['Genera un par de claves nuevo, reemplaza la clave pública autorizada y elimina la anterior.'];
-    case 'conn-string':
-      return ['Cambia la contraseña del usuario de la base de datos y actualiza las aplicaciones que la usan.'];
-    case 'env':
-      return ['Rota cada secreto contenido en el archivo .env.'];
-    default:
-      return ['Rota o revoca la credencial en el sistema de origen.'];
-  }
-}
+// Idioma del emisor (META.lang). Los secretos anteriores a esta opción no lo tienen: español.
+const msgs = (m) => messages(m?.lang);
 
 // ---------- bloques reutilizables de los correos
 const refBlock = (m) => (m.caseRef ? [{ type: 'ref', value: m.caseRef }] : []);
 const readsBlock = (m) => ((m.readLog ?? []).length ? [{ type: 'reads', items: m.readLog.map(when) }] : []);
 const checklistBlock = (m) => ({
-  type: 'steps', title: 'Checklist de rotación',
-  items: steps(m).map((s) => { const [text, ...code] = s.split('\n   '); return { text, code: code.join('\n') || undefined }; }),
+  type: 'steps', title: msgs(m).checklistTitle,
+  items: msgs(m).checklist(m).map((s) => { const [text, ...code] = s.split('\n   '); return { text, code: code.join('\n') || undefined }; }),
 });
+// El link lleva ?lang= para que la página de confirmación se abra en el idioma del correo
 const ackBlock = (id, m) => ({
   type: 'action',
-  intro: 'Cuando hayas rotado, confirma aquí (abre el link y pulsa el botón):',
-  label: 'Confirmar que roté la credencial',
-  url: `${process.env.SITE_URL}/ack.html#${id}:${m.ackToken}`,
+  intro: msgs(m).ack.intro,
+  label: msgs(m).ack.label,
+  url: `${process.env.SITE_URL}/ack.html?lang=${normalizeLang(m.lang)}#${id}:${m.ackToken}`,
 });
 
 async function register({ id, taskToken }) {
@@ -121,17 +77,18 @@ async function notifyFirstRead({ id }) {
   const m = await getMeta(id);
   if (!m?.notifyEmail) return { ok: true }; // sin email opt-in, nada que hacer
   const left = (m.maxUses ?? 1) - (m.reads ?? 1);
+  const x = msgs(m).firstRead;
   await mail(m.notifyEmail,
-    `Cirrus${tag(m)}: primer acceso al secreto (${m.reads ?? 1} de ${m.maxUses})`,
+    x.subject(tag(m), m.reads ?? 1, m.maxUses),
     {
-      heading: 'Tu secreto se abrió por primera vez',
+      heading: x.heading,
       blocks: [
         ...refBlock(m),
-        { type: 'p', text: `Tu secreto ${short(id)} fue abierto por primera vez. ${queda(left, m.maxUses)}.` },
-        { type: 'p', text: 'El link sigue activo hasta que se agoten los usos o expire.' },
+        { type: 'p', text: x.opened(short(id), left, m.maxUses) },
+        { type: 'p', text: x.stillActive },
         ...readsBlock(m),
       ],
-    });
+    }, m.lang);
   return { ok: true };
 }
 
@@ -143,18 +100,19 @@ async function notifyRead({ id }) {
   const m = await getMeta(id);
   await setStatus(id, 'READ');
   const rotate = rotates(m);
+  const x = msgs(m).read;
   await mail(m.notifyEmail,
-    `Cirrus${tag(m)}: tu secreto se leyó por completo (${m.reads ?? 0} de ${m.maxUses})`,
+    x.subject(tag(m), m.reads ?? 0, m.maxUses),
     {
-      heading: 'Tu secreto se leyó por completo',
+      heading: x.heading,
       blocks: [
         ...refBlock(m),
-        { type: 'p', text: `Tu secreto ${short(id)} agotó sus usos. El link ya no sirve.` },
-        ...(rotate ? [{ type: 'alert', text: 'Pero la credencial SIGUE ACTIVA en su cuenta de origen.' }] : []),
+        { type: 'p', text: x.exhausted(short(id)) },
+        ...(rotate ? [{ type: 'alert', text: x.stillAlive }] : []),
         ...readsBlock(m),
         ...(rotate ? [checklistBlock(m), ackBlock(id, m)] : []),
       ],
-    });
+    }, m.lang);
   return { ok: true };
 }
 
@@ -164,29 +122,30 @@ async function notifyExpired({ id }) {
   const reads = m.reads ?? 0;
   await setStatus(id, 'EXPIRED');
   const rotate = rotates(m);
+  const x = msgs(m).expired;
   if (reads > 0) {
     await mail(m.notifyEmail,
-      `Cirrus${tag(m)}: tu secreto expiró con ${reads} de ${m.maxUses} lecturas`,
+      x.subjectRead(tag(m), reads, m.maxUses),
       {
-        heading: 'Tu secreto expiró',
+        heading: x.headingRead,
         blocks: [
           ...refBlock(m),
-          { type: 'p', text: `Tu secreto ${short(id)} expiró. Se leyó ${reads} de ${m.maxUses} veces.` },
-          ...(rotate ? [{ type: 'alert', text: 'Como alguien lo leyó, la credencial sigue activa y expuesta.' }] : []),
+          { type: 'p', text: x.bodyRead(short(id), reads, m.maxUses) },
+          ...(rotate ? [{ type: 'alert', text: x.exposed }] : []),
           ...readsBlock(m),
           ...(rotate ? [checklistBlock(m), ackBlock(id, m)] : []),
         ],
-      });
+      }, m.lang);
   } else {
     await mail(m.notifyEmail,
-      `Cirrus${tag(m)}: tu secreto expiró sin leerse`,
+      x.subjectUnread(tag(m)),
       {
-        heading: 'Tu secreto expiró sin leerse',
+        heading: x.headingUnread,
         blocks: [
           ...refBlock(m),
-          { type: 'p', text: `Tu secreto ${short(id)} expiró sin que nadie lo leyera.${rotate ? ' Si ya no necesitas esa credencial, desactívala igualmente.' : ''}` },
+          { type: 'p', text: x.bodyUnread(short(id), rotate) },
         ],
-      });
+      }, m.lang);
   }
   return { reads };
 }
@@ -205,32 +164,34 @@ async function sendReminder({ id }) {
     ReturnValues: 'ALL_NEW',
   }));
   const m = r.Attributes;
+  const x = msgs(m).reminder;
   await mail(m.notifyEmail,
-    `Cirrus${tag(m)}: recordatorio ${m.attempts} de 3, rota la credencial`,
+    x.subject(tag(m), m.attempts),
     {
-      heading: `Recordatorio ${m.attempts} de 3: rota la credencial`,
+      heading: x.heading(m.attempts),
       blocks: [
         ...refBlock(m),
-        { type: 'p', text: `Aún no confirmaste la rotación del secreto ${short(id)}.` },
+        { type: 'p', text: x.body(short(id)) },
         checklistBlock(m),
         ackBlock(id, m),
       ],
-    });
+    }, m.lang);
   return { ok: true };
 }
 
 async function giveUp({ id }) {
   const m = await getMeta(id);
   await setStatus(id, 'GAVE_UP');
+  const x = msgs(m).giveUp;
   await mail(m.notifyEmail,
-    `Cirrus${tag(m)}: último aviso, la credencial podría seguir activa`,
+    x.subject(tag(m)),
     {
-      heading: 'Último aviso',
+      heading: x.heading,
       blocks: [
         ...refBlock(m),
-        { type: 'p', text: `Enviamos 3 recordatorios sobre el secreto ${short(id)} sin confirmación. Dejamos de insistir; la credencial podría seguir activa.` },
+        { type: 'p', text: x.body(short(id)) },
       ],
-    });
+    }, m.lang);
   return { ok: true };
 }
 

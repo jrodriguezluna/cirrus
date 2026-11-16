@@ -12,6 +12,7 @@ const KEY_ID = {
   'aws-temp': /^ASIA[0-9A-Z]{16}$/,
   'gcp-sa': /^[0-9a-f]{40}$/,
 };
+const LANGS = ['es', 'en']; // idiomas de los correos; mantener en sync con src/lifecycle/messages.mjs
 const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const sfn = new SFNClient({});
@@ -38,18 +39,19 @@ export const handler = async (event) => {
 
   // Seguimiento opcional (opt-in): email para avisar cuando se lea o expire.
   // `rotate` añade el ciclo de rotación (checklist, recordatorios, confirmación); por defecto
-  // true para clientes anteriores a esta opción.
+  // true para clientes anteriores a esta opción. `lang` es el idioma de los correos (por defecto español).
   let notify = null;
   if (data.notify) {
-    const { email, credClass = 'generic', keyId, account, rotate = true } = data.notify;
+    const { email, credClass = 'generic', keyId, account, rotate = true, lang = 'es' } = data.notify;
     if (typeof email !== 'string' || email.length > 254 || !EMAIL.test(email)) return reply(400, { error: 'invalid_email' });
     if (typeof rotate !== 'boolean') return reply(400, { error: 'invalid_rotate' });
+    if (!LANGS.includes(lang)) return reply(400, { error: 'invalid_lang' });
     if (!CLASSES.includes(credClass)) return reply(400, { error: 'invalid_class' });
     if (keyId !== undefined && !KEY_ID[credClass]?.test(keyId)) return reply(400, { error: 'invalid_key_id' });
     if (account !== undefined && (credClass !== 'gcp-sa' || typeof account !== 'string' || account.length > 254 || !EMAIL.test(account))) {
       return reply(400, { error: 'invalid_account' });
     }
-    notify = { email, credClass, keyId, account, rotate };
+    notify = { email, credClass, keyId, account, rotate, lang };
   }
 
   const id = randomBytes(16).toString('base64url');
@@ -71,6 +73,7 @@ export const handler = async (event) => {
   if (notify) {
     meta.notifyEmail = notify.email;
     meta.rotate = notify.rotate;
+    meta.lang = notify.lang;
     // El tipo de credencial solo sirve para el checklist de rotación: sin rotación no se guarda
     if (notify.rotate) {
       meta.credClass = notify.credClass;

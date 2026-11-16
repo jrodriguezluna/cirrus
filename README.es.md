@@ -23,6 +23,7 @@ Cirrus cierra ese ciclo. Reconoce lo que compartes, te advierte sobre credencial
 | **Detección de credenciales** | Totalmente en el cliente. Reconoce access keys de AWS (`AKIA…`) y credenciales temporales (`ASIA…`), JSON de service accounts de GCP, client secrets de Azure, tokens de GitHub y Slack, claves privadas PEM, cadenas de conexión y archivos `.env`. Muestra una advertencia, una alternativa más segura y un TTL por defecto más corto. |
 | **Seguimiento del ciclo de vida** | Avisos por email opcionales: primer acceso (links multiuso), última lectura, expiración. El seguimiento de rotación, también opcional, añade un checklist por proveedor, hasta 3 recordatorios y una página de confirmación. |
 | **Página de estado** | El emisor ve las lecturas (con hora), los recordatorios y el estado de la rotación, nunca el contenido. |
+| **Español / inglés** | Un interruptor ES \| EN en la cabecera de cada página. La elección se recuerda, por defecto sigue el idioma del navegador y fija también el idioma de los correos del emisor (`notify.lang`, guardado en el item META). Los links de confirmación de los correos llevan `?lang=` para abrir la página en el mismo idioma. Los textos de la interfaz están en `web/messages.js` y los de los correos en `src/lifecycle/messages.mjs`. |
 | **Extras opcionales** | Passphrase para un segundo canal (PBKDF2-SHA256, 600 000 iteraciones) y una referencia de caso en texto plano (`CASE-12345`) que se muestra en los correos y las páginas. |
 | **Web endurecida** | CSP estricta (`script-src 'self'`, sin código en línea, sin recursos de terceros, fuente alojada localmente), `nosniff`, `no-referrer`, HSTS y `X-Frame-Options: DENY`. |
 
@@ -105,6 +106,12 @@ flowchart TD
 
 Los checklists de rotación incluyen los comandos exactos del proveedor detectado (por ejemplo `aws iam update-access-key … --status Inactive`, o `gcloud iam service-accounts keys disable …`).
 
+Los correos salen en el idioma que el emisor tenía elegido al crear el secreto (`notify.lang`: `es` o `en`, por defecto `es`; `create` lo valida y se guarda en `META`). Los secretos creados antes de esta opción no tienen `lang` y siguen recibiendo correos en español. El link de confirmación es `ack.html?lang=<lang>#<id>:<token>`, así la página abre en el idioma del correo. Los marcadores de los comandos también se traducen (`USUARIO` / `USERNAME`); los comandos no.
+
+### Idiomas (interfaz)
+
+`web/i18n.js` traduce las páginas al cargar y en cada cambio, sin dependencias ni código en línea (compatible con la CSP). El HTML estático conserva su texto en español y lleva claves `data-i18n` / `data-i18n-attr`; el texto dinámico usa `bind(el, clave, params)`, que se reescribe solo al cambiar el idioma. Todos los textos están en `web/messages.js` (`es` y `en`, mismas claves, verificado por las pruebas); los de la detección de credenciales, en `web/detect.js`. El idioma se elige por `?lang=`, luego la elección guardada (`localStorage`, clave `cirrus.lang`), luego el idioma del navegador y, por último, español. Para añadir un idioma: agrégalo en `MESSAGES`, en `LANGS` (`web/i18n.js`, `src/create`, `src/lifecycle/messages.mjs`) y en las etiquetas de `src/lifecycle/email.mjs`.
+
 ## Modelo de datos
 
 Una tabla de DynamoDB, clave de partición `pk`, atributo TTL `ttl`.
@@ -112,7 +119,7 @@ Una tabla de DynamoDB, clave de partición `pk`, atributo TTL `ttl`.
 | Item | Contenido |
 |---|---|
 | `SEC#<id>` (se borra en la última lectura) | `ct`, `iv`, `maxUses`, `usesLeft`, `expiresAt`, `pass` (booleano), `caseRef` opcional |
-| `META#<id>` (se conserva 30 días tras expirar) | `status`, `createdAt`, `reads`, `readLog` (marcas de tiempo), `attempts`, hash del token de estado, token de confirmación, task token y, solo si el emisor lo activó: `notifyEmail`, `credClass`, `rotate` e identificadores no secretos (`keyId`, email de la service account de GCP) |
+| `META#<id>` (se conserva 30 días tras expirar) | `status`, `createdAt`, `reads`, `readLog` (marcas de tiempo), `attempts`, hash del token de estado, token de confirmación, task token y, solo si el emisor lo activó: `notifyEmail`, `lang`, `credClass`, `rotate` e identificadores no secretos (`keyId`, email de la service account de GCP) |
 
 Los IDs son valores aleatorios de 128 bits (base64url).
 
@@ -122,7 +129,7 @@ Todas las rutas están bajo `/api`, en el mismo origen que el sitio.
 
 | Ruta | Propósito |
 |---|---|
-| `POST /api/secrets` | Crear. Cuerpo: `ct`, `iv`, `ttlSeconds` (60 a 604800), `maxUses` (1 a 5), y opcionalmente `pass`, `caseRef`, `notify` (`email`, `credClass`, `keyId`, `account`, `rotate`). Devuelve `id` y `statusToken`. |
+| `POST /api/secrets` | Crear. Cuerpo: `ct`, `iv`, `ttlSeconds` (60 a 604800), `maxUses` (1 a 5), y opcionalmente `pass`, `caseRef`, `notify` (`email`, `lang`, `credClass`, `keyId`, `account`, `rotate`). Devuelve `id` y `statusToken`. |
 | `GET /api/secrets/{id}/info` | Usos restantes y expiración. Solo lectura. Nunca devuelve el texto cifrado. |
 | `POST /api/secrets/{id}/reveal` | Consume un uso y devuelve `ct` e `iv`. |
 | `GET /api/secrets/{id}/status` | Estado para el emisor. Requiere la cabecera `X-Status-Token`. |

@@ -23,6 +23,7 @@ Cirrus closes that loop. It recognises what you are sharing, warns you about lon
 | **Credential detection** | Entirely client-side. Recognises AWS access keys (`AKIA…`) and temporary credentials (`ASIA…`), GCP service-account JSON, Azure client secrets, GitHub and Slack tokens, PEM private keys, connection strings and `.env` files. Shows a warning, a safer alternative and a shorter default TTL. |
 | **Lifecycle tracking** | Opt-in email follow-up: first access (multi-use links), last read, expiry. Optional rotation tracking adds a per-provider checklist, up to 3 reminders, and a confirmation page. |
 | **Status page** | The sender sees reads (with timestamps), reminders and rotation state, never the content. |
+| **English / Spanish** | An ES \| EN switch in every page header. The choice is remembered, defaults to the browser language, and also sets the language of the sender's emails (`notify.lang`, stored in the META item). Confirmation links in emails carry `?lang=` so the page opens in the same language. UI texts live in `web/messages.js`, email texts in `src/lifecycle/messages.mjs`. |
 | **Optional extras** | Passphrase for a second channel (PBKDF2-SHA256, 600,000 iterations), and a plaintext case reference (`CASE-12345`) shown in emails and pages. |
 | **Hardened web** | Strict CSP (`script-src 'self'`, no inline code, no third-party resources, self-hosted font), `nosniff`, `no-referrer`, HSTS, `X-Frame-Options: DENY`. |
 
@@ -105,6 +106,12 @@ When does an email go out?
 
 Rotation checklists include the exact commands for the detected provider (for example `aws iam update-access-key … --status Inactive`, or `gcloud iam service-accounts keys disable …`).
 
+Emails are sent in the language the sender had selected when creating the secret (`notify.lang`: `es` or `en`, default `es`; validated by `create`, stored in `META`). Secrets created before this option have no `lang` and keep getting Spanish emails. The confirmation link is `ack.html?lang=<lang>#<id>:<token>`, so the page opens in the email's language. Command placeholders are localised too (`USUARIO` / `USERNAME`), the commands themselves are not.
+
+### Languages (UI)
+
+`web/i18n.js` translates the pages at load and on every switch, with no dependencies and no inline code (CSP-safe). Static HTML keeps its Spanish text and carries `data-i18n` / `data-i18n-attr` keys; dynamic text uses `bind(el, key, params)`, which rewrites itself when the language changes. All strings live in `web/messages.js` (`es` and `en`, same keys, checked by tests); credential-detection texts live in `web/detect.js`. Language is picked from `?lang=`, then the saved choice (`localStorage`, key `cirrus.lang`), then the browser language, then Spanish. To add a language: add it to `MESSAGES`, `LANGS` (`web/i18n.js`, `src/create`, `src/lifecycle/messages.mjs`) and the email labels in `src/lifecycle/email.mjs`.
+
 ## Data model
 
 One DynamoDB table, partition key `pk`, TTL attribute `ttl`.
@@ -112,7 +119,7 @@ One DynamoDB table, partition key `pk`, TTL attribute `ttl`.
 | Item | Contents |
 |---|---|
 | `SEC#<id>` (deleted on the last read) | `ct`, `iv`, `maxUses`, `usesLeft`, `expiresAt`, `pass` (boolean), optional `caseRef` |
-| `META#<id>` (kept 30 days after expiry) | `status`, `createdAt`, `reads`, `readLog` (timestamps), `attempts`, hashed status token, ack token, task token, and, only if the sender opted in: `notifyEmail`, `credClass`, `rotate`, and non-secret identifiers (`keyId`, GCP service-account email) |
+| `META#<id>` (kept 30 days after expiry) | `status`, `createdAt`, `reads`, `readLog` (timestamps), `attempts`, hashed status token, ack token, task token, and, only if the sender opted in: `notifyEmail`, `lang`, `credClass`, `rotate`, and non-secret identifiers (`keyId`, GCP service-account email) |
 
 IDs are 128-bit random values (base64url).
 
@@ -122,7 +129,7 @@ All routes are under `/api` on the same origin as the site.
 
 | Route | Purpose |
 |---|---|
-| `POST /api/secrets` | Create. Body: `ct`, `iv`, `ttlSeconds` (60 to 604800), `maxUses` (1 to 5), optional `pass`, `caseRef`, `notify` (`email`, `credClass`, `keyId`, `account`, `rotate`). Returns `id` and `statusToken`. |
+| `POST /api/secrets` | Create. Body: `ct`, `iv`, `ttlSeconds` (60 to 604800), `maxUses` (1 to 5), optional `pass`, `caseRef`, `notify` (`email`, `lang`, `credClass`, `keyId`, `account`, `rotate`). Returns `id` and `statusToken`. |
 | `GET /api/secrets/{id}/info` | Remaining uses and expiry. Read-only. Never returns ciphertext. |
 | `POST /api/secrets/{id}/reveal` | Consume one use and return `ct` and `iv`. |
 | `GET /api/secrets/{id}/status` | Sender's status. Requires the `X-Status-Token` header. |

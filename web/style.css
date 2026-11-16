@@ -84,6 +84,22 @@ body {
 
 /* ---------- Layout compartido ---------- */
 .site-header { padding: 1.5rem 1rem .5rem; text-align: center; }
+/* Interruptor de idioma ES | EN (lo crea i18n.js): alineado a la derecha de la columna principal */
+.lang-switch {
+  display: flex; gap: 2px; width: fit-content; padding: 3px;
+  margin: 0 max(0px, calc((100% - 640px) / 2)) .6rem auto;
+  background: var(--card-soft); border: 1.5px solid var(--line); border-radius: 999px;
+}
+.lang-switch .lang-opt {
+  margin: 0; padding: .3rem .8rem; min-width: 2.75rem;
+  border-radius: 999px; background: transparent; color: var(--muted);
+  box-shadow: none; transform: none;
+  font-size: .8rem; font-weight: 800; letter-spacing: .03em;
+}
+.lang-switch .lang-opt:hover:not(:disabled) { background: var(--seg-hover); color: var(--fg); transform: none; box-shadow: none; }
+.lang-switch .lang-opt[aria-pressed="true"], .lang-switch .lang-opt[aria-pressed="true"]:hover:not(:disabled) { background: var(--accent); color: var(--accent-fg); box-shadow: var(--shadow-sm); }
+.lang-switch .lang-opt:active:not(:disabled) { transform: none; }
+
 .brand { display: inline-block; border-radius: var(--radius-sm); }
 .brand img { display: block; width: min(260px, 68vw); height: auto; }
 

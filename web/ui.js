@@ -1,4 +1,5 @@
 // Utilidades de interfaz compartidas por las páginas.
+import { t, bind } from './i18n.js';
 
 export const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -16,25 +17,28 @@ function legacyCopy(text) {
   return ok;
 }
 
-// Cambia el texto del botón un instante y luego lo restaura.
-function flash(btn, label, cls) {
-  if (!btn.dataset.label) btn.dataset.label = btn.textContent;
-  btn.textContent = label;
+// Cambia el texto del botón un instante y luego lo restaura. El botón conserva su clave de
+// traducción (data-i18n), así que se restaura en el idioma vigente, aunque cambie durante el aviso.
+function flash(btn, key, cls) {
+  const original = btn.dataset.i18n;
+  bind(btn, key);
   btn.classList.add(cls);
   clearTimeout(btn.flashTimer);
   btn.flashTimer = setTimeout(() => {
-    btn.textContent = btn.dataset.label;
+    bind(btn, null);                                   // deja de seguir el aviso
+    btn.textContent = t(original);
     btn.classList.remove(cls);
   }, 1800);
 }
 
-// Copia al portapapeles y confirma en el propio botón ("¡Copiado!").
+// Copia al portapapeles y confirma en el propio botón ("¡Copiado!" / "Copied!").
+// El botón debe llevar data-i18n con su texto normal.
 // Si ningún método funciona, avisa y ejecuta `onFail` (p. ej. seleccionar el texto para copiarlo a mano).
 export async function copyText(btn, text, { onFail } = {}) {
   let ok = false;
   try { await navigator.clipboard.writeText(text); ok = true; } catch { ok = legacyCopy(text); }
-  if (ok) flash(btn, '¡Copiado!', 'done');
-  else { onFail?.(); flash(btn, 'Cópialo con Ctrl+C', 'failed'); }
+  if (ok) flash(btn, 'copied', 'done');
+  else { onFail?.(); flash(btn, 'copyManual', 'failed'); }
   return ok;
 }
 
