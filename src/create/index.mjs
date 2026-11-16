@@ -4,6 +4,7 @@ import { SFNClient, StartExecutionCommand } from '@aws-sdk/client-sfn';
 import { randomBytes, createHash } from 'node:crypto';
 
 const MAX_USES = 5;
+const PASS_MIN_LEN = 12; // aplicado en el frontend; documentado aquí para consistencia con el threat model
 const REMINDER_WAIT = Number(process.env.REMINDER_WAIT ?? 86400);
 const CLASSES = ['aws-access-key', 'aws-temp', 'gcp-sa', 'azure-secret', 'github-token', 'slack-token', 'pem', 'conn-string', 'env', 'generic'];
 const KEY_ID = {
@@ -35,17 +36,20 @@ export const handler = async (event) => {
     return reply(400, { error: 'invalid_ref' });
   }
 
-  // Aviso opcional (opt-in): email, tipo de credencial y, si aplica, el ID de la key
+  // Seguimiento opcional (opt-in): email para avisar cuando se lea o expire.
+  // `rotate` añade el ciclo de rotación (checklist, recordatorios, confirmación); por defecto
+  // true para clientes anteriores a esta opción.
   let notify = null;
   if (data.notify) {
-    const { email, credClass = 'generic', keyId, account } = data.notify;
+    const { email, credClass = 'generic', keyId, account, rotate = true } = data.notify;
     if (typeof email !== 'string' || email.length > 254 || !EMAIL.test(email)) return reply(400, { error: 'invalid_email' });
+    if (typeof rotate !== 'boolean') return reply(400, { error: 'invalid_rotate' });
     if (!CLASSES.includes(credClass)) return reply(400, { error: 'invalid_class' });
     if (keyId !== undefined && !KEY_ID[credClass]?.test(keyId)) return reply(400, { error: 'invalid_key_id' });
     if (account !== undefined && (credClass !== 'gcp-sa' || typeof account !== 'string' || account.length > 254 || !EMAIL.test(account))) {
       return reply(400, { error: 'invalid_account' });
     }
-    notify = { email, credClass, keyId, account };
+    notify = { email, credClass, keyId, account, rotate };
   }
 
   const id = randomBytes(16).toString('base64url');
@@ -66,9 +70,13 @@ export const handler = async (event) => {
   if (caseRef) meta.caseRef = caseRef;
   if (notify) {
     meta.notifyEmail = notify.email;
-    meta.credClass = notify.credClass;
-    if (notify.keyId) meta.keyId = notify.keyId;
-    if (notify.account) meta.account = notify.account;
+    meta.rotate = notify.rotate;
+    // El tipo de credencial solo sirve para el checklist de rotación: sin rotación no se guarda
+    if (notify.rotate) {
+      meta.credClass = notify.credClass;
+      if (notify.keyId) meta.keyId = notify.keyId;
+      if (notify.account) meta.account = notify.account;
+    }
   }
 
   const secret = { pk: `SEC#${id}`, ct, iv, maxUses, usesLeft: maxUses, expiresAt, ttl: expiresAt + 3600, pass };
@@ -85,7 +93,7 @@ export const handler = async (event) => {
     await sfn.send(new StartExecutionCommand({
       stateMachineArn: process.env.STATE_MACHINE,
       name: id,
-      input: JSON.stringify({ id, waitSeconds: ttlSeconds + 5, reminderWait: REMINDER_WAIT }),
+      input: JSON.stringify({ id, waitSeconds: ttlSeconds + 5, reminderWait: REMINDER_WAIT, rotate: notify.rotate }),
     }));
   }
   return reply(201, { id, maxUses, statusToken });

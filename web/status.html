@@ -4,18 +4,30 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="#c6defa">
+  <meta name="color-scheme" content="light">
   <title>Cirrus · estado del secreto</title>
-  <link rel="icon" href="favicon.ico">
+  <link rel="icon" href="favicon.ico" sizes="48x48">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="preload" href="fonts/nunito-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<header class="site-header">
+  <a class="brand" href="/" aria-label="Cirrus, inicio"><img src="logo.svg" alt="Cirrus" width="260" height="100"></a>
+</header>
 <main>
-  <h1>Cirrus</h1>
-  <p class="sub">Estado de tu secreto. Aquí nunca se muestra su contenido.</p>
-  <p id="headline" class="hint">Cargando…</p>
+  <h1>Estado de tu secreto</h1>
+  <p class="sub">Aquí nunca se muestra su contenido.</p>
+  <p id="headline" class="hint" role="status">Cargando…</p>
+  <ol id="stepper" class="stepper" aria-label="Progreso del secreto" hidden></ol>
   <dl id="stat" class="stat" hidden></dl>
-  <p class="hint">Se actualiza solo cada 5 segundos.</p>
+  <p id="live" class="live" hidden><span class="pulse" aria-hidden="true"></span><span id="liveText">Se actualiza solo cada 5 segundos.</span></p>
+  <p><a href="/">Crear otro secreto</a></p>
 </main>
+<footer class="site-footer">
+  <p>Hecho para AWS Builder Center. Los secretos se cifran en tu navegador: el servidor nunca los ve.</p>
+</footer>
 <script type="module" src="status.js"></script>
 </body>
 </html>

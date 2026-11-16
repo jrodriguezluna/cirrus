@@ -15,6 +15,14 @@
       },
       "TimeoutSecondsPath": "$.waitSeconds",
       "ResultPath": "$.readResult",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
       "Catch": [
         { "ErrorEquals": ["States.Timeout"], "ResultPath": "$.error", "Next": "NotifyExpired" }
       ],
@@ -28,7 +36,24 @@
         "Payload": { "action": "notifyRead", "id.$": "$.id" }
       },
       "ResultPath": null,
-      "Next": "WaitReminder"
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Next": "RotationOnRead"
+    },
+    "RotationOnRead": {
+      "Type": "Choice",
+      "Comment": "Sin rotación el ciclo termina tras el aviso. Las ejecuciones sin el campo (anteriores a esta opción) siguen con recordatorios.",
+      "Choices": [
+        { "Variable": "$.rotate", "IsPresent": false, "Next": "WaitReminder" },
+        { "Variable": "$.rotate", "BooleanEquals": true, "Next": "WaitReminder" }
+      ],
+      "Default": "Closed"
     },
     "NotifyExpired": {
       "Type": "Task",
@@ -39,12 +64,23 @@
       },
       "ResultSelector": { "reads.$": "$.Payload.reads" },
       "ResultPath": "$.expired",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
       "Next": "ReadBeforeExpiry"
     },
     "ReadBeforeExpiry": {
       "Type": "Choice",
+      "Comment": "Solo hay recordatorios si se leyó y se pidió rotación. Las reglas van separadas y en orden para no evaluar $.rotate cuando no existe.",
       "Choices": [
-        { "Variable": "$.expired.reads", "NumericGreaterThan": 0, "Next": "WaitReminder" }
+        { "Variable": "$.expired.reads", "NumericLessThanEquals": 0, "Next": "Closed" },
+        { "Variable": "$.rotate", "IsPresent": false, "Next": "WaitReminder" },
+        { "Variable": "$.rotate", "BooleanEquals": true, "Next": "WaitReminder" }
       ],
       "Default": "Closed"
     },
@@ -65,6 +101,14 @@
         "attempts.$": "$.Payload.attempts"
       },
       "ResultPath": "$.check",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
       "Next": "IsAcked"
     },
     "IsAcked": {
@@ -83,6 +127,14 @@
         "Payload": { "action": "sendReminder", "id.$": "$.id" }
       },
       "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
       "Next": "WaitReminder"
     },
     "GiveUp": {
@@ -93,6 +145,14 @@
         "Payload": { "action": "giveUp", "id.$": "$.id" }
       },
       "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
       "Next": "Closed"
     },
     "Closed": { "Type": "Succeed" }

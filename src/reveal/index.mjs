@@ -1,9 +1,11 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, GetCommand, UpdateCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { SFNClient, SendTaskSuccessCommand } from '@aws-sdk/client-sfn';
+import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const sfn = new SFNClient({});
+const lambda = new LambdaClient({});
 const TableName = process.env.TABLE;
 const reply = (code, body) => ({
   statusCode: code,
@@ -54,6 +56,7 @@ export const handler = async (event) => {
   }
 
   // Registrar la lectura (contador e historial) y, si fue la última, despertar a Step Functions.
+  // Si fue la primera en un link multi-uso, avisar al emisor sin esperar al último uso.
   // Un fallo aquí nunca debe impedir la entrega del secreto.
   try {
     const m = await ddb.send(new UpdateCommand({
@@ -63,8 +66,16 @@ export const handler = async (event) => {
       ExpressionAttributeValues: { ':one': 1, ':now': now, ':empty': [], ':t': [now] },
       ReturnValues: 'ALL_NEW',
     }));
-    if (item.usesLeft === 0 && m.Attributes?.taskToken) {
-      await sfn.send(new SendTaskSuccessCommand({ taskToken: m.Attributes.taskToken, output: '{}' }));
+    const meta = m.Attributes;
+    if (item.usesLeft === 0 && meta?.taskToken) {
+      await sfn.send(new SendTaskSuccessCommand({ taskToken: meta.taskToken, output: '{}' }));
+    } else if ((meta?.reads ?? 0) === 1 && (meta?.maxUses ?? 1) > 1 && meta?.notifyEmail && process.env.LIFECYCLE_FN) {
+      // Primer acceso en link multi-uso con seguimiento: avisar al emisor ahora, sin consumir el token de Step Functions
+      await lambda.send(new InvokeCommand({
+        FunctionName: process.env.LIFECYCLE_FN,
+        InvocationType: 'Event', // asíncrono; no bloquea la respuesta al receptor
+        Payload: JSON.stringify({ action: 'notifyFirstRead', id }),
+      })).catch((e) => console.error('first_read_notify_failed', e.name));
     }
   } catch (e) {
     console.error('lifecycle_notify_failed', e.name);

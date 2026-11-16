@@ -30,6 +30,9 @@ export const handler = async (event) => {
     maxUses: Item.maxUses,
     attempts: Item.attempts ?? 0,
     notify: Boolean(Item.notifyEmail),
+    // Con seguimiento pero sin rotación no hay checklist ni recordatorios. Los secretos
+    // anteriores a esta opción no tienen `rotate`: se tratan como con rotación.
+    rotate: Boolean(Item.notifyEmail) && Item.rotate !== false,
     caseRef: Item.caseRef ?? null,
     readLog: Item.readLog ?? [],
   });

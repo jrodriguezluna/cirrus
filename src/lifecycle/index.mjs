@@ -2,6 +2,7 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, GetCommand, UpdateCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
 import { SFNClient, SendTaskSuccessCommand } from '@aws-sdk/client-sfn';
+import { render } from './email.mjs';
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const ses = new SESv2Client({});
@@ -17,15 +18,18 @@ const setStatus = (id, status) => ddb.send(new UpdateCommand({
   ExpressionAttributeValues: { ':s': status },
 }));
 
-async function mail(to, subject, text) {
+// Envía un correo con dos versiones del mismo contenido: HTML y texto plano.
+// `model` = { heading, blocks } (ver email.mjs). Sin destinatario no hace nada.
+async function mail(to, subject, model) {
   if (!to) return;
+  const { text, html } = render(model);
   try {
     await ses.send(new SendEmailCommand({
       FromEmailAddress: process.env.SENDER,
       Destination: { ToAddresses: [to] },
       Content: { Simple: {
         Subject: { Data: subject, Charset: 'UTF-8' },
-        Body: { Text: { Data: text, Charset: 'UTF-8' } },
+        Body: { Text: { Data: text, Charset: 'UTF-8' }, Html: { Data: html, Charset: 'UTF-8' } },
       } },
     }));
   } catch (e) {
@@ -34,16 +38,15 @@ async function mail(to, subject, text) {
 }
 
 const tag = (m) => (m.caseRef ? ` [${m.caseRef}]` : '');
-const refLines = (m) => (m.caseRef ? [`Referencia: ${m.caseRef}`, ''] : []);
 const when = (t) => new Date(t * 1000).toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
-const readLines = (m) => ((m.readLog ?? []).length
-  ? ['Lecturas:', ...m.readLog.map((t, i) => `  ${i + 1}) ${when(t)}`), '']
-  : []);
+const short = (id) => `${id.slice(0, 6)}…`;
+const queda = (n, max) => `${n === 1 ? 'Queda 1 uso' : `Quedan ${n} usos`} de ${max}`;
 
 function steps(m) {
   const kid = m.keyId ?? 'TU_KEY_ID';
   const gkey = m.keyId ?? 'KEY_ID';
   const acct = m.account ?? 'SA_EMAIL';
+  // Un paso puede llevar un comando: va tras "\n   " (se muestra aparte en el HTML)
   switch (m.credClass) {
     case 'aws-access-key':
       return [
@@ -86,12 +89,19 @@ function steps(m) {
   }
 }
 
-const checklist = (m) => steps(m).map((s, i) => `${i + 1}. ${s}`).join('\n');
-
-const ackHelp = (id, m) => [
-  'Cuando hayas rotado, confirma aquí (abre el link y pulsa el botón):',
-  `  ${process.env.SITE_URL}/ack.html#${id}:${m.ackToken}`,
-].join('\n');
+// ---------- bloques reutilizables de los correos
+const refBlock = (m) => (m.caseRef ? [{ type: 'ref', value: m.caseRef }] : []);
+const readsBlock = (m) => ((m.readLog ?? []).length ? [{ type: 'reads', items: m.readLog.map(when) }] : []);
+const checklistBlock = (m) => ({
+  type: 'steps', title: 'Checklist de rotación',
+  items: steps(m).map((s) => { const [text, ...code] = s.split('\n   '); return { text, code: code.join('\n') || undefined }; }),
+});
+const ackBlock = (id, m) => ({
+  type: 'action',
+  intro: 'Cuando hayas rotado, confirma aquí (abre el link y pulsa el botón):',
+  label: 'Confirmar que roté la credencial',
+  url: `${process.env.SITE_URL}/ack.html#${id}:${m.ackToken}`,
+});
 
 async function register({ id, taskToken }) {
   await ddb.send(new UpdateCommand({
@@ -107,21 +117,44 @@ async function register({ id, taskToken }) {
   return { ok: true };
 }
 
+async function notifyFirstRead({ id }) {
+  const m = await getMeta(id);
+  if (!m?.notifyEmail) return { ok: true }; // sin email opt-in, nada que hacer
+  const left = (m.maxUses ?? 1) - (m.reads ?? 1);
+  await mail(m.notifyEmail,
+    `Cirrus${tag(m)}: primer acceso al secreto (${m.reads ?? 1} de ${m.maxUses})`,
+    {
+      heading: 'Tu secreto se abrió por primera vez',
+      blocks: [
+        ...refBlock(m),
+        { type: 'p', text: `Tu secreto ${short(id)} fue abierto por primera vez. ${queda(left, m.maxUses)}.` },
+        { type: 'p', text: 'El link sigue activo hasta que se agoten los usos o expire.' },
+        ...readsBlock(m),
+      ],
+    });
+  return { ok: true };
+}
+
+// Seguimiento = avisar cuando se lee o expira. Rotación = además checklist, recordatorios y confirmación.
+// Los secretos creados antes de esta opción no tienen `rotate`: se tratan como con rotación.
+const rotates = (m) => m.rotate !== false;
+
 async function notifyRead({ id }) {
   const m = await getMeta(id);
   await setStatus(id, 'READ');
+  const rotate = rotates(m);
   await mail(m.notifyEmail,
-    `Cirrus${tag(m)}: tu secreto se leyó (${m.reads ?? 0} de ${m.maxUses})`,
-    [
-      ...refLines(m),
-      `Tu secreto ${id.slice(0, 6)}… se consumió. El link ya no sirve, pero la credencial SIGUE ACTIVA en su cuenta de origen.`,
-      '',
-      ...readLines(m),
-      'Checklist de rotación:',
-      checklist(m),
-      '',
-      ackHelp(id, m),
-    ].join('\n'));
+    `Cirrus${tag(m)}: tu secreto se leyó por completo (${m.reads ?? 0} de ${m.maxUses})`,
+    {
+      heading: 'Tu secreto se leyó por completo',
+      blocks: [
+        ...refBlock(m),
+        { type: 'p', text: `Tu secreto ${short(id)} agotó sus usos. El link ya no sirve.` },
+        ...(rotate ? [{ type: 'alert', text: 'Pero la credencial SIGUE ACTIVA en su cuenta de origen.' }] : []),
+        ...readsBlock(m),
+        ...(rotate ? [checklistBlock(m), ackBlock(id, m)] : []),
+      ],
+    });
   return { ok: true };
 }
 
@@ -130,27 +163,30 @@ async function notifyExpired({ id }) {
   await ddb.send(new DeleteCommand({ TableName, Key: { pk: `SEC#${id}` } }));
   const reads = m.reads ?? 0;
   await setStatus(id, 'EXPIRED');
+  const rotate = rotates(m);
   if (reads > 0) {
     await mail(m.notifyEmail,
       `Cirrus${tag(m)}: tu secreto expiró con ${reads} de ${m.maxUses} lecturas`,
-      [
-        ...refLines(m),
-        `Tu secreto ${id.slice(0, 6)}… expiró. Se leyó ${reads} de ${m.maxUses} veces.`,
-        'Como alguien lo leyó, la credencial sigue activa y expuesta.',
-        '',
-        ...readLines(m),
-        'Checklist de rotación:',
-        checklist(m),
-        '',
-        ackHelp(id, m),
-      ].join('\n'));
+      {
+        heading: 'Tu secreto expiró',
+        blocks: [
+          ...refBlock(m),
+          { type: 'p', text: `Tu secreto ${short(id)} expiró. Se leyó ${reads} de ${m.maxUses} veces.` },
+          ...(rotate ? [{ type: 'alert', text: 'Como alguien lo leyó, la credencial sigue activa y expuesta.' }] : []),
+          ...readsBlock(m),
+          ...(rotate ? [checklistBlock(m), ackBlock(id, m)] : []),
+        ],
+      });
   } else {
     await mail(m.notifyEmail,
       `Cirrus${tag(m)}: tu secreto expiró sin leerse`,
-      [
-        ...refLines(m),
-        `Tu secreto ${id.slice(0, 6)}… expiró sin que nadie lo leyera. Si ya no necesitas esa credencial, desactívala igualmente.`,
-      ].join('\n'));
+      {
+        heading: 'Tu secreto expiró sin leerse',
+        blocks: [
+          ...refBlock(m),
+          { type: 'p', text: `Tu secreto ${short(id)} expiró sin que nadie lo leyera.${rotate ? ' Si ya no necesitas esa credencial, desactívala igualmente.' : ''}` },
+        ],
+      });
   }
   return { reads };
 }
@@ -171,15 +207,15 @@ async function sendReminder({ id }) {
   const m = r.Attributes;
   await mail(m.notifyEmail,
     `Cirrus${tag(m)}: recordatorio ${m.attempts} de 3, rota la credencial`,
-    [
-      ...refLines(m),
-      `Aún no confirmaste la rotación del secreto ${id.slice(0, 6)}….`,
-      '',
-      'Checklist de rotación:',
-      checklist(m),
-      '',
-      ackHelp(id, m),
-    ].join('\n'));
+    {
+      heading: `Recordatorio ${m.attempts} de 3: rota la credencial`,
+      blocks: [
+        ...refBlock(m),
+        { type: 'p', text: `Aún no confirmaste la rotación del secreto ${short(id)}.` },
+        checklistBlock(m),
+        ackBlock(id, m),
+      ],
+    });
   return { ok: true };
 }
 
@@ -188,14 +224,17 @@ async function giveUp({ id }) {
   await setStatus(id, 'GAVE_UP');
   await mail(m.notifyEmail,
     `Cirrus${tag(m)}: último aviso, la credencial podría seguir activa`,
-    [
-      ...refLines(m),
-      `Enviamos 3 recordatorios sobre el secreto ${id.slice(0, 6)}… sin confirmación. Dejamos de insistir; la credencial podría seguir activa.`,
-    ].join('\n'));
+    {
+      heading: 'Último aviso',
+      blocks: [
+        ...refBlock(m),
+        { type: 'p', text: `Enviamos 3 recordatorios sobre el secreto ${short(id)} sin confirmación. Dejamos de insistir; la credencial podría seguir activa.` },
+      ],
+    });
   return { ok: true };
 }
 
-const actions = { register, notifyRead, notifyExpired, checkAck, sendReminder, giveUp };
+const actions = { register, notifyFirstRead, notifyRead, notifyExpired, checkAck, sendReminder, giveUp };
 
 export const handler = async (event) => {
   const fn = actions[event.action];

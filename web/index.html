@@ -4,69 +4,97 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="#c6defa">
+  <meta name="color-scheme" content="light">
   <title>Cirrus · secretos que se disipan</title>
-  <link rel="icon" href="favicon.ico">
+  <link rel="icon" href="favicon.ico" sizes="48x48">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="preload" href="fonts/nunito-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<header class="site-header">
+  <a class="brand" href="/" aria-label="Cirrus, inicio"><img src="logo.svg" alt="Cirrus" width="260" height="100"></a>
+</header>
 <main>
-  <h1>Cirrus</h1>
-  <p class="sub">Comparte credenciales cifradas en tu navegador. El servidor nunca ve el contenido, y Cirrus te recuerda rotarlas.</p>
+  <h1>Secretos que se disipan</h1>
+  <p class="sub">Comparte credenciales cifradas en tu navegador. El servidor nunca ve el contenido, y Cirrus puede avisarte cuando se lea y recordarte rotarlas.</p>
+  <ul class="chips" aria-label="Qué hace Cirrus">
+    <li>Se cifra en tu navegador</li>
+    <li>Se disipa solo</li>
+    <li>Te avisa y te recuerda rotar</li>
+  </ul>
 
-  <label for="secret">Secreto</label>
-  <textarea id="secret" rows="7" spellcheck="false" autocomplete="off" placeholder="Pega aquí una credencial, un .env, una clave privada…"></textarea>
+  <label for="secret">Tu secreto</label>
+  <textarea id="secret" rows="6" spellcheck="false" autocomplete="off" placeholder="Pega aquí una credencial, un .env, una clave privada…"></textarea>
   <div id="detect" class="box" hidden></div>
 
   <div class="row">
     <div>
       <label for="ttl">Expira en</label>
       <select id="ttl">
-        <option value="60">1 minuto (demo)</option>
-        <option value="300">5 minutos</option>
-        <option value="3600">1 hora</option>
-        <option value="86400" selected>24 horas</option>
-        <option value="604800">7 días</option>
+        <option value="60" data-short="1 min">1 minuto (demo)</option>
+        <option value="300" data-short="5 min">5 minutos</option>
+        <option value="3600" data-short="1 h">1 hora</option>
+        <option value="86400" data-short="24 h" selected>24 horas</option>
+        <option value="604800" data-short="7 d">7 días</option>
       </select>
     </div>
     <div>
       <label for="uses">Usos permitidos</label>
       <select id="uses">
-        <option value="1" selected>1 (recomendado)</option>
-        <option value="2">2</option>
-        <option value="3">3</option>
-        <option value="4">4</option>
-        <option value="5">5</option>
+        <option value="1" data-short="1" selected>1 (recomendado)</option>
+        <option value="2" data-short="2">2</option>
+        <option value="3" data-short="3">3</option>
+        <option value="4" data-short="4">4</option>
+        <option value="5" data-short="5">5</option>
       </select>
     </div>
   </div>
+  <p class="hint">Un solo uso es lo más seguro: con más usos, la ventana de exposición crece.</p>
 
-  <label for="caseRef">Referencia (opcional)</label>
-  <input type="text" id="caseRef" maxlength="80" placeholder="CASE-12345 o nombre del cliente" autocomplete="off">
-  <p class="hint">Se guarda sin cifrar y la verá quien abra el link. No pongas datos sensibles.</p>
+  <details class="adv">
+    <summary>Más opciones: referencia y passphrase</summary>
+    <label for="caseRef">Referencia (opcional)</label>
+    <input type="text" id="caseRef" maxlength="80" placeholder="CASE-12345 o nombre del cliente" autocomplete="off">
+    <p class="hint">Se guarda sin cifrar y la verá quien abra el link. No pongas datos sensibles.</p>
 
-  <label for="pass">Passphrase (opcional)</label>
-  <input type="password" id="pass" autocomplete="new-password" placeholder="Mínimo 8 caracteres">
-  <p class="hint">Compártela por otro canal (chat, llamada), nunca junto al link. Sin ella, el link no descifra nada.</p>
+    <label for="pass">Passphrase (opcional)</label>
+    <input type="password" id="pass" autocomplete="new-password" placeholder="Mínimo 12 caracteres">
+    <p class="hint">Compártela por otro canal (chat, llamada), nunca junto al link. Sin ella, el link no descifra nada.</p>
+  </details>
 
-  <label class="check"><input type="checkbox" id="notify"> Quiero recordatorio de rotación por email</label>
-  <div id="notifyBox" hidden>
-    <label for="email">Tu email</label>
-    <input type="email" id="email" placeholder="tu@correo.com" autocomplete="email">
-    <p class="hint">Si lo activas, el servidor guarda tu email y el tipo de credencial detectado (nunca su contenido). En esta demo, SES solo envía a correos verificados.</p>
+  <div class="option-card">
+    <label class="check"><input type="checkbox" id="notify"> Quiero dar seguimiento a este secreto (avisos por email)</label>
+    <div id="notifyBox" hidden>
+      <label for="email">Tu email</label>
+      <input type="email" id="email" placeholder="tu@correo.com" autocomplete="email">
+      <p class="hint">Te avisamos cuando se lea o expire. En esta demo, SES solo envía a correos verificados.</p>
+
+      <div class="rotate-box">
+        <label class="check"><input type="checkbox" id="rotate"> <span id="rotateLabel">Es una credencial que debo rotar</span></label>
+        <p class="hint" id="rotateHint"></p>
+      </div>
+    </div>
   </div>
 
-  <button id="go">Crear link</button>
-  <p id="error" class="err" hidden></p>
+  <button id="go" class="btn-plane">Crear link</button>
+  <p id="error" class="err" role="alert" hidden></p>
 
-  <section id="result" hidden>
-    <p class="ok">Link creado. Se muestra una sola vez; cópialo ahora.</p>
-    <input type="text" id="link" readonly>
-    <button class="secondary" id="copyLink">Copiar link</button>
+  <section id="result" hidden aria-label="Link creado">
+    <p class="ok check-line">Link creado. Se muestra una sola vez; cópialo ahora.</p>
+    <input type="text" id="link" readonly aria-label="Link del secreto">
+    <ul class="chips" id="resultChips" aria-label="Resumen del link"></ul>
+    <button id="copyLink">Copiar link</button>
     <button class="secondary" id="copyMail">Copiar como email</button>
     <p class="hint" id="resultHint"></p>
     <p><a id="statusLink" href="#">Ver estado de este secreto</a></p>
   </section>
 </main>
+<footer class="site-footer">
+  <p>Hecho para AWS Builder Center. Los secretos se cifran en tu navegador: el servidor nunca los ve.</p>
+</footer>
+<img id="flyPlane" class="fly-plane" src="plane_trail.svg" alt="" width="340" height="340" decoding="async" fetchpriority="low" aria-hidden="true" hidden>
 
 <script type="module" src="index.js"></script>
 </body>

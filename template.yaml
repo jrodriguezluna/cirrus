@@ -67,12 +67,18 @@ Resources:
     Properties:
       CodeUri: src/reveal/
       Handler: index.handler
+      Environment:
+        Variables:
+          LIFECYCLE_FN: !GetAtt LifecycleFn.Arn
       Policies:
         - DynamoDBCrudPolicy: { TableName: !Ref Table }
         - Statement:
             - Effect: Allow
               Action: states:SendTaskSuccess
               Resource: '*'
+            - Effect: Allow
+              Action: lambda:InvokeFunction
+              Resource: !GetAtt LifecycleFn.Arn
       Events:
         Api:
           Type: HttpApi
@@ -163,7 +169,7 @@ Resources:
         SecurityHeadersConfig:
           ContentSecurityPolicy:
             Override: true
-            ContentSecurityPolicy: "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+            ContentSecurityPolicy: "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
           ContentTypeOptions:
             Override: true
           FrameOptions:

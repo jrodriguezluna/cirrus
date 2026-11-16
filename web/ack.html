@@ -4,17 +4,29 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="#c6defa">
+  <meta name="color-scheme" content="light">
   <title>Cirrus · confirmar rotación</title>
-  <link rel="icon" href="favicon.ico">
+  <link rel="icon" href="favicon.ico" sizes="48x48">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="preload" href="fonts/nunito-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<header class="site-header">
+  <a class="brand" href="/" aria-label="Cirrus, inicio"><img src="logo.svg" alt="Cirrus" width="260" height="100"></a>
+</header>
 <main>
-  <h1>Cirrus</h1>
+  <h1>Confirmar rotación</h1>
   <p class="sub">¿Ya rotaste o desactivaste la credencial en su cuenta de origen?</p>
+  <p class="hint" id="ackHint">Al confirmar, Cirrus deja de enviarte recordatorios.</p>
   <button id="ack">Confirmo que roté la credencial</button>
-  <p id="msg" hidden></p>
+  <p id="msg" aria-live="polite" hidden></p>
 </main>
+<footer class="site-footer">
+  <p>Hecho para AWS Builder Center. Los secretos se cifran en tu navegador: el servidor nunca los ve.</p>
+</footer>
+<img id="takeoffPlane" class="takeoff-plane" src="plane_trail.svg" alt="" width="300" height="300" decoding="async" fetchpriority="low" aria-hidden="true" hidden>
 
 <script type="module" src="ack.js"></script>
 </body>
